@@ -234,6 +234,10 @@ h2 {
   background: rgba(255, 255, 255, 0.78);
 }
 
+.full-width {
+  width: 100%;
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -371,6 +375,60 @@ h2 {
   gap: 9px;
 }
 
+.layer-list {
+  padding-top: 14px;
+  border-top: 1px solid #e6edf1;
+}
+
+.muted-layer {
+  color: #91a0ab;
+}
+
+.muted-layer input {
+  cursor: not-allowed;
+}
+
+.segmented-control {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  padding: 4px;
+  border: 1px solid #d7e0e6;
+  border-radius: 8px;
+  background: #f5f8fa;
+}
+
+.segment {
+  min-height: 38px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #33485a;
+  font-weight: 800;
+  text-align: left;
+}
+
+.segment:hover,
+.segment.active {
+  background: #ffffff;
+  color: #17603c;
+  box-shadow: 0 4px 12px rgba(12, 31, 46, 0.08);
+}
+
+.source-box {
+  display: grid;
+  gap: 4px;
+  margin-top: 14px;
+  padding: 12px;
+  border-radius: 8px;
+  background: #f5f8fa;
+  color: #647789;
+}
+
+.source-box strong {
+  color: #17324a;
+}
+
 .legend ul {
   display: grid;
   gap: 10px;
@@ -416,6 +474,10 @@ h2 {
   margin: 0;
   color: #516475;
   line-height: 1.5;
+}
+
+.inline-status.warning {
+  color: #9a5b00;
 }
 
 .error-message {

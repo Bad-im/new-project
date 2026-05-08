@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.prediction import router as prediction_router
+from app.api.weather import router as weather_router
 
 app = FastAPI(
     title="Fire Hazard Classification API",
@@ -22,3 +23,4 @@ app.add_middleware(
 
 app.include_router(health_router)
 app.include_router(prediction_router)
+app.include_router(weather_router)

@@ -1,19 +1,27 @@
 import { MapContainer, TileLayer } from "react-leaflet";
 import HazardLayer from "./HazardLayer";
+import WeatherLayer from "./WeatherLayer";
 import { HazardFeatureCollection } from "../api/predictionApi";
+import { WeatherFeatureCollection } from "../api/weatherApi";
 
 type MapViewProps = {
   hazardData: HazardFeatureCollection | null;
+  weatherData?: WeatherFeatureCollection | null;
   showHazards?: boolean;
+  showWeather?: boolean;
   showDistricts?: boolean;
   showSatellite?: boolean;
+  weatherOpacity?: number;
 };
 
 export default function MapView({
   hazardData,
+  weatherData = null,
   showHazards = true,
+  showWeather = false,
   showDistricts = false,
   showSatellite = false,
+  weatherOpacity = 0.52,
 }: MapViewProps) {
   return (
     <MapContainer
@@ -38,6 +46,7 @@ export default function MapView({
         <HazardLayer data={hazardData} variant="boundary" />
       )}
       {showHazards && <HazardLayer data={hazardData} />}
+      {showWeather && <WeatherLayer data={weatherData} opacity={weatherOpacity} />}
     </MapContainer>
   );
 }

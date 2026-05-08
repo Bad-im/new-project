@@ -3,9 +3,6 @@ import { districts, hazardClassFilters } from "../data/options";
 export type MapFilters = {
   district: string;
   hazardClass: string;
-  showHazards: boolean;
-  showDistricts: boolean;
-  showSatellite: boolean;
 };
 
 type FilterPanelProps = {
@@ -43,32 +40,6 @@ export default function FilterPanel({ filters, onChange }: FilterPanelProps) {
           ))}
         </select>
       </label>
-      <div className="checkbox-group">
-        <label>
-          <input
-            type="checkbox"
-            checked={filters.showHazards}
-            onChange={(event) => onChange({ ...filters, showHazards: event.target.checked })}
-          />
-          Зоны пожароопасности
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={filters.showDistricts}
-            onChange={(event) => onChange({ ...filters, showDistricts: event.target.checked })}
-          />
-          Границы районов
-        </label>
-        <label>
-          <input
-            type="checkbox"
-            checked={filters.showSatellite}
-            onChange={(event) => onChange({ ...filters, showSatellite: event.target.checked })}
-          />
-          Спутниковая подложка
-        </label>
-      </div>
     </section>
   );
 }

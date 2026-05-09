@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, Polygon } from "geojson";
+import type { Feature, FeatureCollection, MultiPolygon, Polygon } from "geojson";
 
 export type WeatherDistrict = {
   id: string;
@@ -51,8 +51,23 @@ export type WeatherFeatureProperties = {
   source?: string;
 };
 
-export type WeatherFeature = Feature<Polygon, WeatherFeatureProperties>;
-export type WeatherFeatureCollection = FeatureCollection<Polygon, WeatherFeatureProperties>;
+export type WeatherFeature = Feature<Polygon | MultiPolygon, WeatherFeatureProperties>;
+export type WeatherFeatureCollection = FeatureCollection<Polygon | MultiPolygon, WeatherFeatureProperties>;
+export type WeatherGeoJsonResponse = WeatherFeatureCollection & {
+  warning?: string;
+  unmatched_districts?: string[];
+  meta?: {
+    total_districts: number;
+    forecasted_districts: number;
+    features_count: number;
+    open_meteo_count: number;
+    mock_count: number;
+    unavailable_count: number;
+    source: string;
+    readable_source: string;
+    warnings: string[];
+  };
+};
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
@@ -76,7 +91,7 @@ export async function getWeatherForecastAll(): Promise<WeatherForecastResponse> 
   return response.json();
 }
 
-export async function getWeatherForecastGeoJson(): Promise<WeatherFeatureCollection> {
+export async function getWeatherForecastGeoJson(): Promise<WeatherGeoJsonResponse> {
   const response = await fetch(`${API_BASE_URL}/weather/forecast/geojson`);
 
   if (!response.ok) {

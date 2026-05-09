@@ -12,8 +12,9 @@ type WeatherForecastPanelProps = {
   districts: WeatherDistrict[];
   isLoading: boolean;
   source: string;
+  openMeteoCount: number;
+  reserveCount: number;
   warning: string;
-  usingMockData: boolean;
   onDateChange: (date: string) => void;
   onDistrictChange: (districtId: string) => void;
   onRefresh: () => void;
@@ -26,8 +27,9 @@ export default function WeatherForecastPanel({
   districts,
   isLoading,
   source,
+  openMeteoCount,
+  reserveCount,
   warning,
-  usingMockData,
   onDateChange,
   onDistrictChange,
   onRefresh,
@@ -65,9 +67,10 @@ export default function WeatherForecastPanel({
       <div className="source-box">
         <span>Источник данных</span>
         <strong>{source || "Open-Meteo"}</strong>
+        <small>Получено из Open-Meteo: {openMeteoCount} районов</small>
+        <small>Резервные данные: {reserveCount} районов</small>
       </div>
       {isLoading && <p className="inline-status">Загрузка метеопрогноза</p>}
-      {usingMockData && <p className="inline-status warning">Используются тестовые данные</p>}
       {warning && <p className="inline-status warning">{warning}</p>}
     </section>
   );

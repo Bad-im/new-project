@@ -1,0 +1,42 @@
+﻿!table
+!version 1520
+!charset UTF-8
+
+Definition Table
+ Type SHAPEFILE Charset "UTF-8"
+ Fields 28
+  NAME char (94) ;
+  NAME_EN char (80) ;
+  NAME_RU char (80) ;
+  ADMIN_LVL char (80) ;
+  OSM_TYPE char (80) ;
+  OSM_ID decimal (18, 0) ;
+  ADMIN_L1D decimal (18, 0) ;
+  ADMIN_L1 char (128) ;
+  ADMIN_L2D decimal (18, 0) ;
+  ADMIN_L2 char (128) ;
+  ADMIN_L3D decimal (18, 0) ;
+  ADMIN_L3 char (128) ;
+  ADMIN_L4D decimal (18, 0) ;
+  ADMIN_L4 char (128) ;
+  ADMIN_L5D decimal (18, 0) ;
+  ADMIN_L5 char (128) ;
+  ADMIN_L6D decimal (18, 0) ;
+  ADMIN_L6 char (128) ;
+  ADMIN_L7D decimal (18, 0) ;
+  ADMIN_L7 char (128) ;
+  ADMIN_L8D decimal (18, 0) ;
+  ADMIN_L8 char (128) ;
+  ADMIN_L9D decimal (18, 0) ;
+  ADMIN_L9 char (128) ;
+  ADMIN_L10D decimal (18, 0) ;
+  ADMIN_L10 char (128) ;
+  oktmo char (11) ;
+  okato char (128) ;
+ File "boundary-polygon-lvl6.dbf"
+begin_metadata
+"\Spatial Reference" = ""
+"\Spatial Reference\Geographic" = ""
+"\Spatial Reference\Geographic\Projection" = ""
+"\Spatial Reference\Geographic\Projection\Clause" = "Coordsys Earth Projection 1, 104 Bounds (-360, -90) (360, 90)"
+end_metadata

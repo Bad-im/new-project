@@ -14,6 +14,7 @@ import {
   WeatherDistrict,
   WeatherFeatureCollection,
   WeatherForecastResponse,
+  WeatherGeoJsonResponse,
   getWeatherDistricts,
   getWeatherForecastAll,
   getWeatherForecastGeoJson,
@@ -42,7 +43,7 @@ export default function MapPage() {
   const [error, setError] = useState("");
   const [weatherDistricts, setWeatherDistricts] = useState<WeatherDistrict[]>([]);
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastResponse | null>(null);
-  const [weatherGeoJson, setWeatherGeoJson] = useState<WeatherFeatureCollection | null>(null);
+  const [weatherGeoJson, setWeatherGeoJson] = useState<WeatherGeoJsonResponse | null>(null);
   const [weatherDate, setWeatherDate] = useState("");
   const [weatherDistrict, setWeatherDistrict] = useState("all");
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
@@ -78,11 +79,11 @@ export default function MapPage() {
     setWeatherError("");
 
     try {
-      const [districts, forecast, geoJson] = await Promise.all([
+      const [districts, forecast] = await Promise.all([
         getWeatherDistricts(),
         getWeatherForecastAll(),
-        getWeatherForecastGeoJson(),
       ]);
+      const geoJson = await getWeatherForecastGeoJson();
       setWeatherDistricts(districts);
       setWeatherForecast(forecast);
       setWeatherGeoJson(geoJson);
@@ -133,15 +134,23 @@ export default function MapPage() {
     const warnings = weatherForecast?.districts
       .map((district) => district.warning)
       .filter(Boolean);
-    return warnings?.[0] ?? "";
-  }, [weatherForecast]);
+    return weatherGeoJson?.meta?.warnings?.[0] ?? weatherGeoJson?.warning ?? warnings?.[0] ?? "";
+  }, [weatherForecast, weatherGeoJson]);
 
-  const weatherSource = weatherForecast?.source ?? weatherGeoJson?.features[0]?.properties.source ?? "Open-Meteo";
+  const weatherSource =
+    weatherGeoJson?.meta?.readable_source ??
+    weatherForecast?.source ??
+    weatherGeoJson?.features[0]?.properties.source ??
+    "Open-Meteo";
+  const openMeteoCount = weatherGeoJson?.meta?.open_meteo_count ?? 0;
+  const reserveCount =
+    (weatherGeoJson?.meta?.mock_count ?? 0) + (weatherGeoJson?.meta?.unavailable_count ?? 0);
 
   const selectedWeatherData = useMemo(() => {
     if (weatherForecast) {
       return buildWeatherGeoJsonFromForecast(
         weatherForecast.districts,
+        weatherGeoJson,
         weatherDate,
         weatherDistrict,
       );
@@ -200,8 +209,9 @@ export default function MapPage() {
               districts={weatherDistricts}
               isLoading={isWeatherLoading}
               source={weatherSource}
+              openMeteoCount={openMeteoCount}
+              reserveCount={reserveCount}
               warning={weatherWarning}
-              usingMockData={weatherSource === "mock"}
               onDateChange={setWeatherDate}
               onDistrictChange={setWeatherDistrict}
               onRefresh={loadWeather}
@@ -235,16 +245,23 @@ export default function MapPage() {
 
 function buildWeatherGeoJsonFromForecast(
   forecasts: DistrictWeatherForecast[],
+  boundariesGeoJson: WeatherGeoJsonResponse | null,
   selectedDate: string,
   selectedDistrict: string,
 ): WeatherFeatureCollection {
+  const boundaryFeatures = boundariesGeoJson?.features ?? [];
   const features: WeatherFeature[] = forecasts
     .filter((forecast) => selectedDistrict === "all" || forecast.district_id === selectedDistrict)
     .reduce<WeatherFeature[]>((acc, forecast) => {
       const selectedDay =
         forecast.daily.find((day) => day.date === selectedDate) ?? forecast.daily[0];
+      const boundaryFeature = boundaryFeatures.find(
+        (feature) =>
+          feature.properties.district_id === forecast.district_id ||
+          feature.properties.district_name === forecast.district_name,
+      );
 
-      if (!selectedDay) {
+      if (!selectedDay || !boundaryFeature?.geometry) {
         return acc;
       }
 
@@ -263,10 +280,7 @@ function buildWeatherGeoJsonFromForecast(
           color: selectedDay.color,
           source: forecast.source,
         },
-        geometry: {
-          type: "Polygon",
-          coordinates: buildSquare(forecast.longitude, forecast.latitude),
-        },
+        geometry: boundaryFeature.geometry,
       });
 
       return acc;
@@ -276,16 +290,4 @@ function buildWeatherGeoJsonFromForecast(
     type: "FeatureCollection",
     features,
   };
-}
-
-function buildSquare(longitude: number, latitude: number, size = 0.16) {
-  return [
-    [
-      [longitude - size, latitude - size],
-      [longitude + size, latitude - size],
-      [longitude + size, latitude + size],
-      [longitude - size, latitude + size],
-      [longitude - size, latitude - size],
-    ],
-  ];
 }

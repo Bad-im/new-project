@@ -1,4 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from app.schemas.weather import (
     DistrictWeatherForecast,
@@ -37,8 +38,8 @@ def get_all_weather_forecasts() -> WeatherForecastResponse:
 
 
 @router.get("/forecast/geojson")
-def get_weather_forecast_geojson() -> dict:
-    return generate_weather_geojson(get_all_districts_weather_forecast())
+def get_weather_forecast_geojson() -> JSONResponse:
+    return JSONResponse(generate_weather_geojson(get_all_districts_weather_forecast()))
 
 
 @router.get("/debug/open-meteo")

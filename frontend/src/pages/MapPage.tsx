@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import FilterPanel, { MapFilters } from "../components/FilterPanel";
-import HazardLegend from "../components/HazardLegend";
 import HazardStats from "../components/HazardStats";
-import LayerSwitcher, { MapLayerState, MapMode } from "../components/LayerSwitcher";
+import LayerSwitcher, { MapMode } from "../components/LayerSwitcher";
 import MapView from "../components/MapView";
 import WeatherForecastPanel from "../components/WeatherForecastPanel";
 import WeatherLegend from "../components/WeatherLegend";
 import WeatherStats from "../components/WeatherStats";
-import { HazardFeatureCollection, runPrediction } from "../api/predictionApi";
+import { getDistrictName } from "../components/DistrictBoundaryLayer";
+import {
+  District,
+  DistrictFeatureCollection,
+  getDistricts,
+  getDistrictsGeoJson,
+} from "../api/districtApi";
 import {
   DistrictWeatherForecast,
   WeatherFeature,
@@ -21,51 +26,43 @@ import {
 } from "../api/weatherApi";
 
 const defaultFilters: MapFilters = {
-  district: "Все районы",
-  hazardClass: "all",
-};
-
-const defaultLayers: MapLayerState = {
-  satelliteAssessment: true,
-  weatherForecast: true,
-  districtBorders: false,
-  settlements: false,
-  roads: false,
-  hydrography: false,
+  districtId: "all",
 };
 
 export default function MapPage() {
   const [filters, setFilters] = useState<MapFilters>(defaultFilters);
-  const [mode, setMode] = useState<MapMode>("satellite");
-  const [layers, setLayers] = useState<MapLayerState>(defaultLayers);
-  const [hazardData, setHazardData] = useState<HazardFeatureCollection | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [mode, setMode] = useState<MapMode>("weather");
+  const [districts, setDistricts] = useState<District[]>([]);
+  const [districtGeoJson, setDistrictGeoJson] = useState<DistrictFeatureCollection | null>(null);
+  const [isDistrictsLoading, setIsDistrictsLoading] = useState(true);
   const [error, setError] = useState("");
   const [weatherDistricts, setWeatherDistricts] = useState<WeatherDistrict[]>([]);
   const [weatherForecast, setWeatherForecast] = useState<WeatherForecastResponse | null>(null);
   const [weatherGeoJson, setWeatherGeoJson] = useState<WeatherGeoJsonResponse | null>(null);
   const [weatherDate, setWeatherDate] = useState("");
   const [weatherDistrict, setWeatherDistrict] = useState("all");
+  const [weatherHazardClass, setWeatherHazardClass] = useState("all");
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    runPrediction()
-      .then((data) => {
+    Promise.all([getDistricts(), getDistrictsGeoJson()])
+      .then(([districtList, geoJson]) => {
         if (isMounted) {
-          setHazardData(data);
+          setDistricts(districtList);
+          setDistrictGeoJson(geoJson);
         }
       })
       .catch(() => {
         if (isMounted) {
-          setError("Не удалось загрузить тестовый GeoJSON-слой");
+          setError("Не удалось загрузить границы районов");
         }
       })
       .finally(() => {
         if (isMounted) {
-          setIsLoading(false);
+          setIsDistrictsLoading(false);
         }
       });
 
@@ -102,23 +99,24 @@ export default function MapPage() {
     void loadWeather();
   }, []);
 
-  const filteredData = useMemo(() => {
-    if (!hazardData) {
+  const filteredDistrictData = useMemo(() => {
+    if (!districtGeoJson) {
       return null;
     }
 
+    const selectedDistrictName = districts.find((district) => district.id === filters.districtId)?.name;
+
     return {
-      ...hazardData,
-      features: hazardData.features.filter((feature) => {
-        const districtMatches =
-          filters.district === "Все районы" || feature.properties.district === filters.district;
-        const classMatches =
-          filters.hazardClass === "all" ||
-          String(feature.properties.hazard_class) === filters.hazardClass;
-        return districtMatches && classMatches;
+      ...districtGeoJson,
+      features: districtGeoJson.features.filter((feature) => {
+        if (filters.districtId === "all") {
+          return true;
+        }
+
+        return getDistrictName(feature.properties) === selectedDistrictName;
       }),
     };
-  }, [filters.district, filters.hazardClass, hazardData]);
+  }, [districtGeoJson, districts, filters.districtId]);
 
   const weatherDateOptions = useMemo(() => {
     const firstForecast = weatherForecast?.districts[0];
@@ -153,6 +151,7 @@ export default function MapPage() {
         weatherGeoJson,
         weatherDate,
         weatherDistrict,
+        weatherHazardClass,
       );
     }
 
@@ -166,77 +165,112 @@ export default function MapPage() {
         const districtMatches =
           weatherDistrict === "all" || feature.properties.district_id === weatherDistrict;
         const dateMatches = !weatherDate || !feature.properties.date || feature.properties.date === weatherDate;
-        return districtMatches && dateMatches;
+        const classMatches =
+          weatherHazardClass === "all" ||
+          feature.properties.weather_hazard_class === weatherHazardClass;
+        return districtMatches && dateMatches && classMatches;
       }),
     };
-  }, [weatherDate, weatherDistrict, weatherForecast, weatherGeoJson]);
+  }, [weatherDate, weatherDistrict, weatherForecast, weatherGeoJson, weatherHazardClass]);
 
-  const showHazards =
-    layers.satelliteAssessment && (mode === "satellite" || mode === "combined");
-  const showWeather = layers.weatherForecast && (mode === "weather" || mode === "combined");
-  const showWeatherPanels = mode === "weather" || mode === "combined";
-  const showHazardPanels = mode === "satellite" || mode === "combined";
+  const selectedWeatherDistrictName = useMemo(() => {
+    if (weatherDistrict === "all") {
+      return "Все районы";
+    }
+
+    return (
+      weatherDistricts.find((district) => district.id === weatherDistrict)?.name ??
+      selectedWeatherData?.features[0]?.properties.district_name ??
+      "-"
+    );
+  }, [selectedWeatherData, weatherDistrict, weatherDistricts]);
+
+  const selectedSatelliteDistrictName =
+    filters.districtId === "all"
+      ? "Все районы"
+      : districts.find((district) => district.id === filters.districtId)?.name ?? "-";
+
+  const showDistricts = mode === "satellite";
+  const showWeather = mode === "weather";
 
   return (
     <div className="map-workspace">
       <aside className="map-sidebar">
-        <div>
+        <div className="map-sidebar-header">
           <p className="eyebrow">Картографический раздел</p>
           <h1>Карта пожароопасности</h1>
           <p className="page-note">
             Единая карта спутниковой оценки и кратковременного метеопрогноза.
           </p>
         </div>
-        <LayerSwitcher
-          mode={mode}
-          layers={layers}
-          onModeChange={setMode}
-          onLayerChange={setLayers}
-        />
-        {showHazardPanels && (
+        <LayerSwitcher mode={mode} onModeChange={setMode} />
+        {mode === "satellite" && (
           <>
-            <FilterPanel filters={filters} onChange={setFilters} />
-            <HazardLegend />
-            <HazardStats data={filteredData} selectedDistrict={filters.district} />
+            <FilterPanel filters={filters} districts={districts} onChange={setFilters} />
+            <section className="panel">
+              <h2>Информация о спутниковой оценке</h2>
+              <p className="inline-status">
+                Демонстрационный слой. Нейросетевая модель будет подключена после дообучения.
+              </p>
+            </section>
+            <HazardStats
+              displayedDistrictCount={filteredDistrictData?.features.length ?? 0}
+              selectedDistrict={selectedSatelliteDistrictName}
+            />
+            <section className="panel">
+              <h2>Уровни пожарной опасности</h2>
+              <p className="inline-status">
+                Слой спутниковой классификации не подключён. После дообучения модели на карте
+                будут отображаться классы пожароопасности лесного покрова.
+              </p>
+            </section>
           </>
         )}
-        {showWeatherPanels && (
+        {mode === "weather" && (
           <>
             <WeatherForecastPanel
               dateOptions={weatherDateOptions}
               selectedDate={weatherDate}
               selectedDistrict={weatherDistrict}
+              selectedHazardClass={weatherHazardClass}
               districts={weatherDistricts}
               isLoading={isWeatherLoading}
-              source={weatherSource}
-              openMeteoCount={openMeteoCount}
-              reserveCount={reserveCount}
-              warning={weatherWarning}
               onDateChange={setWeatherDate}
               onDistrictChange={setWeatherDistrict}
+              onHazardClassChange={setWeatherHazardClass}
               onRefresh={loadWeather}
             />
-            <WeatherLegend />
+            <section className="panel">
+              <h2>Источник данных</h2>
+              <div className="source-box">
+                <span>Поставщик</span>
+                <strong>{weatherSource || "Open-Meteo"}</strong>
+                <small>Получено из Open-Meteo: {openMeteoCount} районов</small>
+                <small>Резервные данные: {reserveCount} районов</small>
+              </div>
+              {weatherWarning && <p className="inline-status warning">{weatherWarning}</p>}
+            </section>
             <WeatherStats
               data={selectedWeatherData}
               selectedDate={weatherDate}
-              source={weatherSource}
+              selectedDistrict={selectedWeatherDistrictName}
             />
+            <WeatherLegend />
           </>
         )}
-        {isLoading && <p className="inline-status">Загрузка слоя карты...</p>}
+        {isDistrictsLoading && <p className="inline-status">Загрузка границ районов...</p>}
         {error && <p className="error-message">{error}</p>}
         {weatherError && <p className="error-message">{weatherError}</p>}
       </aside>
       <section className="map-canvas" aria-label="Интерактивная карта">
         <MapView
-          hazardData={filteredData}
+          districtData={filteredDistrictData}
           weatherData={selectedWeatherData}
-          showHazards={showHazards}
+          showDistricts={showDistricts}
           showWeather={showWeather}
-          showDistricts={layers.districtBorders}
-          showSatellite={mode === "weather"}
-          weatherOpacity={mode === "combined" ? 0.34 : 0.56}
+          showSatellite={mode === "satellite"}
+          weatherOpacity={0.56}
+          resizeKey={`${mode}-${filters.districtId}-${weatherDate}-${weatherDistrict}-${weatherHazardClass}`}
         />
       </section>
     </div>
@@ -248,6 +282,7 @@ function buildWeatherGeoJsonFromForecast(
   boundariesGeoJson: WeatherGeoJsonResponse | null,
   selectedDate: string,
   selectedDistrict: string,
+  selectedHazardClass: string,
 ): WeatherFeatureCollection {
   const boundaryFeatures = boundariesGeoJson?.features ?? [];
   const features: WeatherFeature[] = forecasts
@@ -262,6 +297,13 @@ function buildWeatherGeoJsonFromForecast(
       );
 
       if (!selectedDay || !boundaryFeature?.geometry) {
+        return acc;
+      }
+
+      if (
+        selectedHazardClass !== "all" &&
+        selectedDay.weather_hazard_class !== selectedHazardClass
+      ) {
         return acc;
       }
 

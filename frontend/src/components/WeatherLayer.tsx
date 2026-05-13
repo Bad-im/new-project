@@ -2,6 +2,11 @@ import { GeoJSON } from "react-leaflet";
 import type { Layer } from "leaflet";
 import { WeatherFeature, WeatherFeatureCollection, WeatherHazardClass } from "../api/weatherApi";
 
+type StyledLayer = Layer & {
+  bringToFront?: () => void;
+  setStyle?: (style: Record<string, string | number>) => void;
+};
+
 export const weatherClassItems = [
   { classValue: "I", className: "отсутствует", color: "#4fc3f7" },
   { classValue: "II", className: "малая", color: "#2e7d32" },
@@ -37,13 +42,14 @@ export default function WeatherLayer({ data, opacity = 0.52 }: WeatherLayerProps
       key={JSON.stringify(data)}
       data={data}
       style={(feature) => ({
-        color: getWeatherHazardColor(feature?.properties?.weather_hazard_class),
+        color: "#111827",
         fillColor: getWeatherHazardColor(feature?.properties?.weather_hazard_class),
         fillOpacity: opacity,
-        opacity: 0.92,
-        weight: 2,
+        opacity: 0.98,
+        weight: 1.8,
       })}
       onEachFeature={(feature: WeatherFeature, layer: Layer) => {
+        const styledLayer = layer as StyledLayer;
         const properties = feature.properties ?? {};
         layer.bindPopup(
           [
@@ -57,6 +63,23 @@ export default function WeatherLayer({ data, opacity = 0.52 }: WeatherLayerProps
             `Источник данных: ${properties.source ?? "нет данных"}`,
           ].join("<br />"),
         );
+
+        layer.on({
+          mouseover: () => {
+            styledLayer.setStyle?.({
+              color: "#000000",
+              weight: 3,
+            });
+
+            styledLayer.bringToFront?.();
+          },
+          mouseout: () => {
+            styledLayer.setStyle?.({
+              color: "#111827",
+              weight: 1.8,
+            });
+          },
+        });
       }}
     />
   );

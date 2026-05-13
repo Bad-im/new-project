@@ -28,7 +28,9 @@ export default function AppLayout({
         onLogin={onLogin}
         onLogout={onLogout}
       />
-      <main className="app-main">{children}</main>
+      <main className={activePage === "map" ? "app-main map-main" : "app-main"}>
+        {children}
+      </main>
     </div>
   );
 }

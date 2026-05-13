@@ -3,9 +3,7 @@ import { Page } from "../App";
 const navItems: Array<{ page: Page; label: string }> = [
   { page: "overview", label: "Обзор" },
   { page: "map", label: "Карта" },
-  { page: "analysis", label: "Анализ снимков" },
-  { page: "results", label: "Результаты" },
-  { page: "about", label: "О системе" },
+  { page: "work", label: "Работа со снимками" },
 ];
 
 type NavigationProps = {

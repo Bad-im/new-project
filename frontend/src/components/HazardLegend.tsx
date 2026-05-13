@@ -3,7 +3,7 @@ import { hazardClassItems } from "./HazardLayer";
 export default function HazardLegend() {
   return (
     <section className="panel legend">
-      <h2>Классы пожароопасности</h2>
+      <h2>Легенда</h2>
       <ul>
         {hazardClassItems.map((item) => (
           <li key={item.className}>

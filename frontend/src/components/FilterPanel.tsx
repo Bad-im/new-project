@@ -1,45 +1,36 @@
-import { districts, hazardClassFilters } from "../data/options";
+import { District } from "../api/districtApi";
 
 export type MapFilters = {
-  district: string;
-  hazardClass: string;
+  districtId: string;
 };
 
 type FilterPanelProps = {
   filters: MapFilters;
+  districts: District[];
   onChange: (filters: MapFilters) => void;
 };
 
-export default function FilterPanel({ filters, onChange }: FilterPanelProps) {
+export default function FilterPanel({ filters, districts, onChange }: FilterPanelProps) {
   return (
     <section className="panel">
-      <h2>Фильтры карты</h2>
+      <h2>Фильтры</h2>
       <label className="field">
         <span>Район</span>
         <select
-          value={filters.district}
-          onChange={(event) => onChange({ ...filters, district: event.target.value })}
+          value={filters.districtId}
+          onChange={(event) => onChange({ districtId: event.target.value })}
         >
+          <option value="all">Все районы</option>
           {districts.map((district) => (
-            <option key={district} value={district}>
-              {district}
+            <option key={district.id} value={district.id}>
+              {district.name}
             </option>
           ))}
         </select>
       </label>
-      <label className="field">
-        <span>Класс пожароопасности</span>
-        <select
-          value={filters.hazardClass}
-          onChange={(event) => onChange({ ...filters, hazardClass: event.target.value })}
-        >
-          {hazardClassFilters.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      <p className="inline-status">
+        Фильтрация по классам будет доступна после подключения нейросетевой модели.
+      </p>
     </section>
   );
 }

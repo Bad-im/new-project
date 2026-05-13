@@ -1,27 +1,28 @@
-import { MapContainer, TileLayer } from "react-leaflet";
-import HazardLayer from "./HazardLayer";
+import { useEffect } from "react";
+import { MapContainer, TileLayer, useMap } from "react-leaflet";
+import DistrictBoundaryLayer from "./DistrictBoundaryLayer";
 import WeatherLayer from "./WeatherLayer";
-import { HazardFeatureCollection } from "../api/predictionApi";
+import { DistrictFeatureCollection } from "../api/districtApi";
 import { WeatherFeatureCollection } from "../api/weatherApi";
 
 type MapViewProps = {
-  hazardData: HazardFeatureCollection | null;
+  districtData: DistrictFeatureCollection | null;
   weatherData?: WeatherFeatureCollection | null;
-  showHazards?: boolean;
-  showWeather?: boolean;
   showDistricts?: boolean;
+  showWeather?: boolean;
   showSatellite?: boolean;
   weatherOpacity?: number;
+  resizeKey?: string;
 };
 
 export default function MapView({
-  hazardData,
+  districtData,
   weatherData = null,
-  showHazards = true,
+  showDistricts = true,
   showWeather = false,
-  showDistricts = false,
   showSatellite = false,
   weatherOpacity = 0.52,
+  resizeKey = "",
 }: MapViewProps) {
   return (
     <MapContainer
@@ -42,11 +43,27 @@ export default function MapView({
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
       )}
-      {showDistricts && hazardData && (
-        <HazardLayer data={hazardData} variant="boundary" />
-      )}
-      {showHazards && <HazardLayer data={hazardData} />}
+      <MapResizeHandler resizeKey={resizeKey} />
+      {showDistricts && <DistrictBoundaryLayer data={districtData} />}
       {showWeather && <WeatherLayer data={weatherData} opacity={weatherOpacity} />}
     </MapContainer>
   );
+}
+
+function MapResizeHandler({ resizeKey }: { resizeKey: string }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const resizeMap = () => map.invalidateSize();
+    const container = map.getContainer();
+    const resizeObserver = new ResizeObserver(resizeMap);
+
+    resizeObserver.observe(container);
+    window.setTimeout(resizeMap, 0);
+    window.setTimeout(resizeMap, 180);
+
+    return () => resizeObserver.disconnect();
+  }, [map, resizeKey]);
+
+  return null;
 }

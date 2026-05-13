@@ -1,12 +1,10 @@
 import { useEffect, useState } from "react";
 import AppLayout from "./components/AppLayout";
-import AboutPage from "./pages/AboutPage";
-import AnalysisPage from "./pages/AnalysisPage";
 import OverviewPage from "./pages/OverviewPage";
 import MapPage from "./pages/MapPage";
-import ResultsPage from "./pages/ResultsPage";
+import WorkWithImagesPage from "./pages/WorkWithImagesPage";
 
-export type Page = "overview" | "map" | "analysis" | "results" | "about";
+export type Page = "overview" | "map" | "work";
 
 export default function App() {
   const [page, setPage] = useState<Page>("overview");
@@ -17,11 +15,8 @@ export default function App() {
       localStorage.setItem("mockRole", "admin");
     } else {
       localStorage.removeItem("mockRole");
-      if (page === "results") {
-        setPage("overview");
-      }
     }
-  }, [isAdmin, page]);
+  }, [isAdmin]);
 
   return (
     <AppLayout
@@ -35,21 +30,13 @@ export default function App() {
         <OverviewPage onNavigate={setPage} onLogin={() => setIsAdmin(true)} />
       )}
       {page === "map" && <MapPage />}
-      {page === "analysis" && (
-        <AnalysisPage
+      {page === "work" && (
+        <WorkWithImagesPage
           isAdmin={isAdmin}
           onLogin={() => setIsAdmin(true)}
           onOpenMap={() => setPage("map")}
         />
       )}
-      {page === "results" && (
-        <ResultsPage
-          isAdmin={isAdmin}
-          onLogin={() => setIsAdmin(true)}
-          onOpenMap={() => setPage("map")}
-        />
-      )}
-      {page === "about" && <AboutPage />}
     </AppLayout>
   );
 }

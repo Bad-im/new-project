@@ -1,4 +1,5 @@
 import { WeatherDistrict } from "../api/weatherApi";
+import { weatherClassItems } from "./WeatherLayer";
 
 export type ForecastDateOption = {
   value: string;
@@ -9,14 +10,12 @@ type WeatherForecastPanelProps = {
   dateOptions: ForecastDateOption[];
   selectedDate: string;
   selectedDistrict: string;
+  selectedHazardClass: string;
   districts: WeatherDistrict[];
   isLoading: boolean;
-  source: string;
-  openMeteoCount: number;
-  reserveCount: number;
-  warning: string;
   onDateChange: (date: string) => void;
   onDistrictChange: (districtId: string) => void;
+  onHazardClassChange: (hazardClass: string) => void;
   onRefresh: () => void;
 };
 
@@ -24,19 +23,17 @@ export default function WeatherForecastPanel({
   dateOptions,
   selectedDate,
   selectedDistrict,
+  selectedHazardClass,
   districts,
   isLoading,
-  source,
-  openMeteoCount,
-  reserveCount,
-  warning,
   onDateChange,
   onDistrictChange,
+  onHazardClassChange,
   onRefresh,
 }: WeatherForecastPanelProps) {
   return (
     <section className="panel">
-      <h2>Метеопрогноз</h2>
+      <h2>Фильтры</h2>
       <label className="field">
         <span>Дата прогноза</span>
         <select value={selectedDate} onChange={(event) => onDateChange(event.target.value)}>
@@ -61,17 +58,24 @@ export default function WeatherForecastPanel({
           ))}
         </select>
       </label>
+      <label className="field">
+        <span>Класс пожароопасности</span>
+        <select
+          value={selectedHazardClass}
+          onChange={(event) => onHazardClassChange(event.target.value)}
+        >
+          <option value="all">Все классы</option>
+          {weatherClassItems.map((item) => (
+            <option key={item.classValue} value={item.classValue}>
+              {item.classValue} - {item.className}
+            </option>
+          ))}
+        </select>
+      </label>
       <button className="secondary-button full-width" type="button" onClick={onRefresh}>
         Обновить метеопрогноз
       </button>
-      <div className="source-box">
-        <span>Источник данных</span>
-        <strong>{source || "Open-Meteo"}</strong>
-        <small>Получено из Open-Meteo: {openMeteoCount} районов</small>
-        <small>Резервные данные: {reserveCount} районов</small>
-      </div>
       {isLoading && <p className="inline-status">Загрузка метеопрогноза</p>}
-      {warning && <p className="inline-status warning">{warning}</p>}
     </section>
   );
 }

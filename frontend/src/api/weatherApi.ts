@@ -27,6 +27,12 @@ export type DistrictWeatherForecast = {
   longitude: number;
   source: string;
   forecast_days: number;
+  history_days_requested: number;
+  history_days_used: number;
+  last_significant_rain_date: string | null;
+  last_significant_rain_mm: number | null;
+  dry_period_days: number;
+  history_used: boolean;
   warning: string | null;
   daily: NesterovForecastDay[];
 };
@@ -49,6 +55,12 @@ export type WeatherFeatureProperties = {
   hazard_name?: string;
   color?: string;
   source?: string;
+  history_days_requested?: number;
+  history_days_used?: number;
+  last_significant_rain_date?: string | null;
+  last_significant_rain_mm?: number | null;
+  dry_period_days?: number;
+  history_used?: boolean;
 };
 
 export type WeatherFeature = Feature<Polygon | MultiPolygon, WeatherFeatureProperties>;
@@ -66,6 +78,7 @@ export type WeatherGeoJsonResponse = WeatherFeatureCollection & {
     source: string;
     readable_source: string;
     warnings: string[];
+    history_days_requested?: number;
   };
 };
 

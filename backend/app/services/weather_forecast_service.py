@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from app.schemas.weather import DistrictWeatherForecast, WeatherDistrict, WeatherForecastResponse
 from app.services.district_boundary_service import (
@@ -8,10 +8,18 @@ from app.services.district_boundary_service import (
     find_boundary_feature_by_district_id,
     get_districts_list,
 )
-from app.services.nesterov_service import calculate_daily_weather_values, calculate_nesterov_index
-from app.services.weather_provider import fetch_open_meteo_forecast, normalize_weather_response
+from app.services.nesterov_service import (
+    calculate_daily_weather_values,
+    calculate_nesterov_index_with_history,
+)
+from app.services.weather_provider import (
+    fetch_open_meteo_forecast,
+    fetch_open_meteo_history,
+    normalize_weather_response,
+)
 
 FORECAST_DAYS = 3
+HISTORY_DAYS = 20
 CACHE_TTL = timedelta(minutes=30)
 _FORECAST_CACHE: dict[str, tuple[datetime, DistrictWeatherForecast]] = {}
 
@@ -61,18 +69,41 @@ def get_district_weather_forecast(district_id_or_name: str) -> DistrictWeatherFo
     if cached_forecast:
         return cached_forecast
 
+    today = date.today()
+    history_start_date = today - timedelta(days=HISTORY_DAYS)
+    history_end_date = today - timedelta(days=1)
+
+    raw_history = fetch_open_meteo_history(
+        latitude=district.latitude,
+        longitude=district.longitude,
+        start_date=history_start_date,
+        end_date=history_end_date,
+    )
     raw_forecast = fetch_open_meteo_forecast(
         latitude=district.latitude,
         longitude=district.longitude,
         days=FORECAST_DAYS,
     )
+    normalized_history = normalize_weather_response(raw_history)
     normalized_forecast = normalize_weather_response(raw_forecast)
-    daily_values = calculate_daily_weather_values(normalized_forecast["hourly"])
-    nesterov_days, calculation_warning = calculate_nesterov_index(daily_values)
+    history_daily_values = calculate_daily_weather_values(normalized_history["hourly"])
+    forecast_daily_values = calculate_daily_weather_values(normalized_forecast["hourly"])
+    nesterov_result = calculate_nesterov_index_with_history(
+        history_days=history_daily_values,
+        forecast_days=forecast_daily_values,
+    )
+
+    source = "Open-Meteo"
+    if normalized_history["source"] == "mock" or normalized_forecast["source"] == "mock":
+        source = "mock"
 
     warnings = [
         warning
-        for warning in (normalized_forecast.get("warning"), calculation_warning)
+        for warning in (
+            normalized_history.get("warning"),
+            normalized_forecast.get("warning"),
+            nesterov_result.get("warning"),
+        )
         if warning
     ]
 
@@ -81,10 +112,16 @@ def get_district_weather_forecast(district_id_or_name: str) -> DistrictWeatherFo
         district_name=district.name,
         latitude=district.latitude,
         longitude=district.longitude,
-        source=normalized_forecast["source"],
-        forecast_days=len(nesterov_days),
+        source=source,
+        forecast_days=len(nesterov_result["daily"]),
+        history_days_requested=HISTORY_DAYS,
+        history_days_used=nesterov_result["history_days_used"],
+        last_significant_rain_date=nesterov_result["last_significant_rain_date"],
+        last_significant_rain_mm=nesterov_result["last_significant_rain_mm"],
+        dry_period_days=nesterov_result["dry_period_days"],
+        history_used=True,
         warning="; ".join(warnings) if warnings else None,
-        daily=nesterov_days,
+        daily=nesterov_result["daily"],
     )
     _set_cached_forecast(district.id, forecast)
     return forecast
@@ -159,6 +196,7 @@ def generate_weather_geojson(forecast_results: WeatherForecastResponse | list[Di
                     "source": "unavailable",
                     "readable_source": "Источник недоступен",
                     "warnings": [str(error)],
+                    "history_days_requested": HISTORY_DAYS,
                 },
             }
 
@@ -188,6 +226,12 @@ def generate_weather_geojson(forecast_results: WeatherForecastResponse | list[Di
                     "hazard_name": latest_day.hazard_name,
                     "color": latest_day.color,
                     "source": forecast.source,
+                    "history_days_requested": forecast.history_days_requested,
+                    "history_days_used": forecast.history_days_used,
+                    "last_significant_rain_date": forecast.last_significant_rain_date,
+                    "last_significant_rain_mm": forecast.last_significant_rain_mm,
+                    "dry_period_days": forecast.dry_period_days,
+                    "history_used": forecast.history_used,
                 },
                 "geometry": boundary_feature.get("geometry"),
             }
@@ -221,6 +265,7 @@ def generate_weather_geojson(forecast_results: WeatherForecastResponse | list[Di
             "source": source_summary["source"],
             "readable_source": source_summary["readable_source"],
             "warnings": sorted(set(warnings)),
+            "history_days_requested": HISTORY_DAYS,
         },
     }
     if unmatched_districts:

@@ -9,6 +9,9 @@ FORECAST_WARNING = (
     "Расчёт выполнен по доступному прогнозному периоду; для более точного КППО "
     "требуется история сухого периода"
 )
+NO_SIGNIFICANT_RAIN_WARNING = (
+    "В доступной истории не найден последний значимый дождь; КППО рассчитан по доступному периоду."
+)
 
 
 def _parse_hour(time_value: str) -> datetime:
@@ -64,6 +67,61 @@ def calculate_nesterov_index(
         )
 
     return forecast_days, FORECAST_WARNING
+
+
+def calculate_nesterov_index_with_history(
+    history_days: list[WeatherDailyValue],
+    forecast_days: list[WeatherDailyValue],
+) -> dict:
+    last_rain_index = None
+    last_rain_day: WeatherDailyValue | None = None
+
+    for index, day in enumerate(history_days):
+        if day.precipitation_mm >= RESET_PRECIPITATION_MM:
+            last_rain_index = index
+            last_rain_day = day
+
+    if last_rain_index is None:
+        calculation_days = history_days + forecast_days
+        warning = NO_SIGNIFICANT_RAIN_WARNING
+    else:
+        calculation_days = history_days[last_rain_index + 1 :] + forecast_days
+        warning = None
+
+    accumulated_index = 0.0
+    forecast_result: list[NesterovForecastDay] = []
+    forecast_dates = {day.date for day in forecast_days}
+    dry_period_days = 0
+
+    for day in calculation_days:
+        if day.precipitation_mm >= RESET_PRECIPITATION_MM:
+            accumulated_index = 0.0
+            dry_period_days = 0
+        else:
+            dew_point_deficit = day.temperature_c - day.dew_point_c
+            accumulated_index += max(day.temperature_c * dew_point_deficit, 0)
+            dry_period_days += 1
+
+        if day.date in forecast_dates:
+            hazard_class, hazard_name = classify_nesterov_index(accumulated_index)
+            forecast_result.append(
+                NesterovForecastDay(
+                    **day.model_dump(),
+                    nesterov_index=round(accumulated_index, 1),
+                    weather_hazard_class=hazard_class,
+                    hazard_name=hazard_name,
+                    color=get_hazard_color_by_weather_class(hazard_class),
+                )
+            )
+
+    return {
+        "daily": forecast_result,
+        "warning": warning,
+        "history_days_used": len(history_days),
+        "last_significant_rain_date": last_rain_day.date if last_rain_day else None,
+        "last_significant_rain_mm": last_rain_day.precipitation_mm if last_rain_day else None,
+        "dry_period_days": dry_period_days,
+    }
 
 
 def classify_nesterov_index(kp_value: float) -> tuple[str, str]:

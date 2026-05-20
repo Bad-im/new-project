@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import requests
 
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 OPEN_METEO_HOURLY_VARIABLES = "temperature_2m,dew_point_2m,precipitation"
 OPEN_METEO_TIMEOUT_SECONDS = 15
 OPEN_METEO_RETRY_COUNT = 1
@@ -13,8 +14,15 @@ OPEN_METEO_RETRY_COUNT = 1
 logger = logging.getLogger(__name__)
 
 
-def _build_mock_response(latitude: float, longitude: float, days: int, warning: str) -> dict:
-    start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+def _build_mock_response(
+    latitude: float,
+    longitude: float,
+    days: int,
+    warning: str,
+    start_date: date | None = None,
+) -> dict:
+    start_day = start_date or date.today()
+    start = datetime.combine(start_day, datetime.min.time())
     times: list[str] = []
     temperature: list[float] = []
     dew_point: list[float] = []
@@ -53,11 +61,41 @@ def _build_open_meteo_params(latitude: float, longitude: float, days: int = 3) -
     }
 
 
+def _build_open_meteo_archive_params(
+    latitude: float,
+    longitude: float,
+    start_date: date,
+    end_date: date,
+) -> dict:
+    return {
+        "latitude": latitude,
+        "longitude": longitude,
+        "hourly": OPEN_METEO_HOURLY_VARIABLES,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "timezone": "Asia/Irkutsk",
+    }
+
+
 def _prepare_open_meteo_request(latitude: float, longitude: float, days: int = 3) -> requests.PreparedRequest:
     request = requests.Request(
         "GET",
         OPEN_METEO_FORECAST_URL,
         params=_build_open_meteo_params(latitude, longitude, days),
+    )
+    return request.prepare()
+
+
+def _prepare_open_meteo_archive_request(
+    latitude: float,
+    longitude: float,
+    start_date: date,
+    end_date: date,
+) -> requests.PreparedRequest:
+    request = requests.Request(
+        "GET",
+        OPEN_METEO_ARCHIVE_URL,
+        params=_build_open_meteo_archive_params(latitude, longitude, start_date, end_date),
     )
     return request.prepare()
 
@@ -131,6 +169,68 @@ def fetch_open_meteo_forecast(latitude: float, longitude: float, days: int = 3) 
         longitude=longitude,
         days=days,
         warning=error_message,
+    )
+
+
+def fetch_open_meteo_history(
+    latitude: float,
+    longitude: float,
+    start_date: date,
+    end_date: date,
+) -> dict:
+    prepared_request = _prepare_open_meteo_archive_request(
+        latitude,
+        longitude,
+        start_date,
+        end_date,
+    )
+    request_url = prepared_request.url or OPEN_METEO_ARCHIVE_URL
+    logger.info("Open-Meteo history request URL: %s", request_url)
+    last_error: Exception | None = None
+
+    for attempt in range(OPEN_METEO_RETRY_COUNT + 1):
+        try:
+            with requests.Session() as session:
+                session.trust_env = False
+                response = session.get(
+                    OPEN_METEO_ARCHIVE_URL,
+                    params=_build_open_meteo_archive_params(latitude, longitude, start_date, end_date),
+                    timeout=OPEN_METEO_TIMEOUT_SECONDS,
+                )
+            logger.info(
+                "Open-Meteo history response status: %s, attempt: %s",
+                response.status_code,
+                attempt + 1,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            _validate_open_meteo_payload(payload)
+            payload["source"] = "Open-Meteo"
+            payload["warning"] = None
+            payload["request_url"] = request_url
+            return payload
+        except (requests.RequestException, ValueError) as error:
+            last_error = error
+            logger.warning(
+                "Open-Meteo history request failed. URL: %s. Attempt: %s. Ошибка: %s",
+                request_url,
+                attempt + 1,
+                error,
+            )
+
+    error_message = (
+        "Исторические данные Open-Meteo недоступны или вернули некорректный ответ. "
+        "Для района использованы резервные данные."
+    )
+    if last_error:
+        logger.warning("%s URL: %s. Ошибка: %s", error_message, request_url, last_error)
+
+    return _build_mock_response(
+        latitude=latitude,
+        longitude=longitude,
+        days=(end_date - start_date).days + 1,
+        warning=error_message,
+        start_date=start_date,
     )
 
 

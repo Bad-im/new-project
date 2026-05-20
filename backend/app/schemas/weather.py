@@ -24,6 +24,12 @@ class DistrictWeatherForecast(BaseModel):
     longitude: float
     source: str
     forecast_days: int
+    history_days_requested: int
+    history_days_used: int
+    last_significant_rain_date: str | None = None
+    last_significant_rain_mm: float | None = None
+    dry_period_days: int
+    history_used: bool
     warning: str | None = None
     daily: list[NesterovForecastDay]
 

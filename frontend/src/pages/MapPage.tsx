@@ -143,6 +143,26 @@ export default function MapPage() {
   const openMeteoCount = weatherGeoJson?.meta?.open_meteo_count ?? 0;
   const reserveCount =
     (weatherGeoJson?.meta?.mock_count ?? 0) + (weatherGeoJson?.meta?.unavailable_count ?? 0);
+  const selectedHistoryInfo = useMemo(() => {
+    const visibleForecasts =
+      weatherDistrict === "all"
+        ? weatherForecast?.districts ?? []
+        : weatherForecast?.districts.filter((district) => district.district_id === weatherDistrict) ?? [];
+    const selectedForecast = [...visibleForecasts].sort(
+      (first, second) => second.dry_period_days - first.dry_period_days,
+    )[0];
+
+    return {
+      isSummary: weatherDistrict === "all",
+      historyDays:
+        selectedForecast?.history_days_requested ??
+        weatherGeoJson?.meta?.history_days_requested ??
+        20,
+      lastSignificantRainDate: selectedForecast?.last_significant_rain_date ?? "",
+      lastSignificantRainMm: selectedForecast?.last_significant_rain_mm ?? null,
+      dryPeriodDays: selectedForecast?.dry_period_days ?? null,
+    };
+  }, [weatherDistrict, weatherForecast, weatherGeoJson]);
 
   const selectedWeatherData = useMemo(() => {
     if (weatherForecast) {
@@ -247,6 +267,16 @@ export default function MapPage() {
                 <strong>{weatherSource || "Open-Meteo"}</strong>
                 <small>Получено из Open-Meteo: {openMeteoCount} районов</small>
                 <small>Резервные данные: {reserveCount} районов</small>
+                <small>Учтена история погоды: {selectedHistoryInfo.historyDays} дней</small>
+                <small>
+                  {selectedHistoryInfo.isSummary
+                    ? "Последний значимый дождь (район с самым длинным сухим периодом): "
+                    : "Последний значимый дождь: "}
+                  {selectedHistoryInfo.lastSignificantRainDate
+                    ? `${selectedHistoryInfo.lastSignificantRainDate}, ${selectedHistoryInfo.lastSignificantRainMm ?? 0} мм`
+                    : "не найден в доступной истории"}
+                </small>
+                <small>Сухой период: {selectedHistoryInfo.dryPeriodDays ?? 0} дней</small>
               </div>
               {weatherWarning && <p className="inline-status warning">{weatherWarning}</p>}
             </section>
@@ -321,6 +351,12 @@ function buildWeatherGeoJsonFromForecast(
           hazard_name: selectedDay.hazard_name,
           color: selectedDay.color,
           source: forecast.source,
+          history_days_requested: forecast.history_days_requested,
+          history_days_used: forecast.history_days_used,
+          last_significant_rain_date: forecast.last_significant_rain_date,
+          last_significant_rain_mm: forecast.last_significant_rain_mm,
+          dry_period_days: forecast.dry_period_days,
+          history_used: forecast.history_used,
         },
         geometry: boundaryFeature.geometry,
       });

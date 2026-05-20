@@ -28,7 +28,7 @@ export function getWeatherHazardColor(classId?: string): string {
   return weatherColors.get(classId as WeatherHazardClass) ?? "#607d8b";
 }
 
-function formatNumber(value?: number, fallback = "нет данных") {
+function formatNumber(value?: number | null, fallback = "нет данных") {
   return typeof value === "number" ? String(value) : fallback;
 }
 
@@ -61,6 +61,13 @@ export default function WeatherLayer({ data, opacity = 0.52 }: WeatherLayerProps
             `Индекс Нестерова / КППО: ${formatNumber(properties.nesterov_index)}`,
             `Класс пожарной опасности: ${properties.weather_hazard_class ?? "нет данных"} (${properties.hazard_name ?? "нет данных"})`,
             `Источник данных: ${properties.source ?? "нет данных"}`,
+            `История погоды: ${formatNumber(properties.history_days_used)} из ${formatNumber(properties.history_days_requested)} дней`,
+            `Последний значимый дождь: ${
+              properties.last_significant_rain_date
+                ? `${properties.last_significant_rain_date}, ${formatNumber(properties.last_significant_rain_mm)} мм`
+                : "не найден"
+            }`,
+            `Сухой период: ${formatNumber(properties.dry_period_days)} дней`,
           ].join("<br />"),
         );
 

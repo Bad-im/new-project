@@ -23,22 +23,33 @@ export type DistrictFeatureCollection = FeatureCollection<
   DistrictBoundaryProperties
 >;
 
-export async function getDistricts(): Promise<District[]> {
-  const response = await fetch(`${API_BASE_URL}/districts`);
+let districtsPromise: Promise<District[]> | null = null;
+let districtsGeoJsonPromise: Promise<DistrictFeatureCollection> | null = null;
 
-  if (!response.ok) {
-    throw new Error("Не удалось получить список районов");
+export async function getDistricts(): Promise<District[]> {
+  if (!districtsPromise) {
+    districtsPromise = fetch(`${API_BASE_URL}/districts`).then((response) => {
+      if (!response.ok) {
+        throw new Error("Не удалось получить список районов");
+      }
+
+      return response.json();
+    });
   }
 
-  return response.json();
+  return districtsPromise;
 }
 
 export async function getDistrictsGeoJson(): Promise<DistrictFeatureCollection> {
-  const response = await fetch(`${API_BASE_URL}/districts/geojson`);
+  if (!districtsGeoJsonPromise) {
+    districtsGeoJsonPromise = fetch(`${API_BASE_URL}/districts/geojson`).then((response) => {
+      if (!response.ok) {
+        throw new Error("Не удалось получить GeoJSON районов");
+      }
 
-  if (!response.ok) {
-    throw new Error("Не удалось получить GeoJSON районов");
+      return response.json();
+    });
   }
 
-  return response.json();
+  return districtsGeoJsonPromise;
 }

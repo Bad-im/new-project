@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import date, datetime, timedelta
 
 import requests
@@ -8,8 +9,9 @@ import requests
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 OPEN_METEO_HOURLY_VARIABLES = "temperature_2m,dew_point_2m,precipitation"
-OPEN_METEO_TIMEOUT_SECONDS = 15
-OPEN_METEO_RETRY_COUNT = 1
+OPEN_METEO_TIMEOUT_SECONDS = 8
+OPEN_METEO_RETRY_COUNT = 0
+FALLBACK_WARNING = "Open-Meteo временно недоступен, использованы резервные данные"
 
 logger = logging.getLogger(__name__)
 
@@ -152,10 +154,7 @@ def fetch_open_meteo_forecast(latitude: float, longitude: float, days: int = 3) 
                 error,
             )
 
-    error_message = (
-        "Open-Meteo недоступен или вернул некорректный ответ. "
-        "Для района использованы резервные данные."
-    )
+    error_message = FALLBACK_WARNING
     if last_error:
         logger.warning(
             "%s URL: %s. Ошибка: %s",
@@ -164,12 +163,14 @@ def fetch_open_meteo_forecast(latitude: float, longitude: float, days: int = 3) 
             last_error,
         )
 
-    return _build_mock_response(
+    fallback_response = _build_mock_response(
         latitude=latitude,
         longitude=longitude,
         days=days,
         warning=error_message,
     )
+    fallback_response["source"] = "fallback"
+    return fallback_response
 
 
 def fetch_open_meteo_history(
@@ -218,26 +219,27 @@ def fetch_open_meteo_history(
                 error,
             )
 
-    error_message = (
-        "Исторические данные Open-Meteo недоступны или вернули некорректный ответ. "
-        "Для района использованы резервные данные."
-    )
+    error_message = FALLBACK_WARNING
     if last_error:
         logger.warning("%s URL: %s. Ошибка: %s", error_message, request_url, last_error)
 
-    return _build_mock_response(
+    fallback_response = _build_mock_response(
         latitude=latitude,
         longitude=longitude,
         days=(end_date - start_date).days + 1,
         warning=error_message,
         start_date=start_date,
     )
+    fallback_response["source"] = "fallback"
+    return fallback_response
 
 
 def debug_open_meteo_request(latitude: float, longitude: float, days: int = 3) -> dict:
     prepared_request = _prepare_open_meteo_request(latitude, longitude, days)
     request_url = prepared_request.url or OPEN_METEO_FORECAST_URL
     logger.info("Open-Meteo debug request URL: %s", request_url)
+    started_at = time.perf_counter()
+    status_code: int | None = None
 
     try:
         with requests.Session() as session:
@@ -247,6 +249,7 @@ def debug_open_meteo_request(latitude: float, longitude: float, days: int = 3) -
                 params=_build_open_meteo_params(latitude, longitude, days),
                 timeout=OPEN_METEO_TIMEOUT_SECONDS,
             )
+        status_code = response.status_code
         logger.info("Open-Meteo debug response status: %s", response.status_code)
         response.raise_for_status()
         payload = response.json()
@@ -257,10 +260,14 @@ def debug_open_meteo_request(latitude: float, longitude: float, days: int = 3) -
             "success": True,
             "source": "Open-Meteo",
             "request_url": request_url,
+            "status_code": status_code,
             "error": None,
-            "temperature_2m_first": hourly["temperature_2m"][0] if hourly["temperature_2m"] else None,
-            "dew_point_2m_first": hourly["dew_point_2m"][0] if hourly["dew_point_2m"] else None,
-            "precipitation_first": hourly["precipitation"][0] if hourly["precipitation"] else None,
+            "sample": {
+                "temperature_2m": hourly["temperature_2m"][0] if hourly["temperature_2m"] else None,
+                "dew_point_2m": hourly["dew_point_2m"][0] if hourly["dew_point_2m"] else None,
+                "precipitation": hourly["precipitation"][0] if hourly["precipitation"] else None,
+            },
+            "duration_ms": round((time.perf_counter() - started_at) * 1000),
         }
     except (requests.RequestException, ValueError) as error:
         logger.warning(
@@ -270,15 +277,79 @@ def debug_open_meteo_request(latitude: float, longitude: float, days: int = 3) -
         )
         return {
             "success": False,
-            "source": "mock",
+            "source": "fallback",
             "request_url": request_url,
+            "status_code": status_code,
             "error": (
                 "Не удалось получить реальные данные Open-Meteo. "
                 f"Детали: {error}"
             ),
-            "temperature_2m_first": None,
-            "dew_point_2m_first": None,
-            "precipitation_first": None,
+            "sample": None,
+            "duration_ms": round((time.perf_counter() - started_at) * 1000),
+        }
+
+
+def debug_open_meteo_history_request(
+    latitude: float,
+    longitude: float,
+    days: int = 20,
+) -> dict:
+    end_date = date.today() - timedelta(days=1)
+    start_date = end_date - timedelta(days=days - 1)
+    prepared_request = _prepare_open_meteo_archive_request(
+        latitude,
+        longitude,
+        start_date,
+        end_date,
+    )
+    request_url = prepared_request.url or OPEN_METEO_ARCHIVE_URL
+    logger.info("Open-Meteo history debug request URL: %s", request_url)
+    started_at = time.perf_counter()
+    status_code: int | None = None
+
+    try:
+        with requests.Session() as session:
+            session.trust_env = False
+            response = session.get(
+                OPEN_METEO_ARCHIVE_URL,
+                params=_build_open_meteo_archive_params(latitude, longitude, start_date, end_date),
+                timeout=OPEN_METEO_TIMEOUT_SECONDS,
+            )
+        status_code = response.status_code
+        logger.info("Open-Meteo history debug response status: %s", response.status_code)
+        response.raise_for_status()
+        payload = response.json()
+        _validate_open_meteo_payload(payload)
+
+        hourly = payload["hourly"]
+        return {
+            "success": True,
+            "source": "Open-Meteo",
+            "request_url": request_url,
+            "status_code": status_code,
+            "error": None,
+            "sample": {
+                "time": hourly["time"][:3],
+                "temperature_2m": hourly["temperature_2m"][:3],
+                "dew_point_2m": hourly["dew_point_2m"][:3],
+                "precipitation": hourly["precipitation"][:3],
+            },
+            "duration_ms": round((time.perf_counter() - started_at) * 1000),
+        }
+    except (requests.RequestException, ValueError) as error:
+        logger.warning(
+            "Open-Meteo history debug request failed. URL: %s. Ошибка: %s",
+            request_url,
+            error,
+        )
+        return {
+            "success": False,
+            "source": "fallback",
+            "request_url": request_url,
+            "status_code": status_code,
+            "error": str(error),
+            "sample": None,
+            "duration_ms": round((time.perf_counter() - started_at) * 1000),
         }
 
 

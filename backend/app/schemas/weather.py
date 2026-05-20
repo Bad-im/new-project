@@ -45,3 +45,4 @@ class WeatherForecastResponse(BaseModel):
     source: str
     forecast_days: int
     districts: list[DistrictWeatherForecast]
+    meta: dict | None = None

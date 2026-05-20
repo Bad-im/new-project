@@ -14,14 +14,9 @@ import {
   getDistrictsGeoJson,
 } from "../api/districtApi";
 import {
-  DistrictWeatherForecast,
-  WeatherFeature,
   WeatherDistrict,
-  WeatherFeatureCollection,
-  WeatherForecastResponse,
   WeatherGeoJsonResponse,
-  getWeatherDistricts,
-  getWeatherForecastAll,
+  clearWeatherCache,
   getWeatherForecastGeoJson,
 } from "../api/weatherApi";
 
@@ -37,7 +32,6 @@ export default function MapPage() {
   const [isDistrictsLoading, setIsDistrictsLoading] = useState(true);
   const [error, setError] = useState("");
   const [weatherDistricts, setWeatherDistricts] = useState<WeatherDistrict[]>([]);
-  const [weatherForecast, setWeatherForecast] = useState<WeatherForecastResponse | null>(null);
   const [weatherGeoJson, setWeatherGeoJson] = useState<WeatherGeoJsonResponse | null>(null);
   const [weatherDate, setWeatherDate] = useState("");
   const [weatherDistrict, setWeatherDistrict] = useState("all");
@@ -48,16 +42,18 @@ export default function MapPage() {
   useEffect(() => {
     let isMounted = true;
 
-    Promise.all([getDistricts(), getDistrictsGeoJson()])
-      .then(([districtList, geoJson]) => {
+    Promise.allSettled([getDistricts(), getDistrictsGeoJson()])
+      .then(([districtListResult, geoJsonResult]) => {
         if (isMounted) {
-          setDistricts(districtList);
-          setDistrictGeoJson(geoJson);
-        }
-      })
-      .catch(() => {
-        if (isMounted) {
-          setError("Не удалось загрузить границы районов");
+          if (districtListResult.status === "fulfilled") {
+            setDistricts(districtListResult.value);
+          }
+
+          if (geoJsonResult.status === "fulfilled") {
+            setDistrictGeoJson(geoJsonResult.value);
+          } else {
+            setError("Не удалось загрузить границы районов");
+          }
         }
       })
       .finally(() => {
@@ -71,22 +67,31 @@ export default function MapPage() {
     };
   }, []);
 
-  const loadWeather = async () => {
+  const loadWeather = async (force = false) => {
     setIsWeatherLoading(true);
     setWeatherError("");
 
     try {
-      const [districts, forecast] = await Promise.all([
-        getWeatherDistricts(),
-        getWeatherForecastAll(),
-      ]);
-      const geoJson = await getWeatherForecastGeoJson();
-      setWeatherDistricts(districts);
-      setWeatherForecast(forecast);
+      if (force) {
+        await clearWeatherCache();
+      }
+      const geoJson = await getWeatherForecastGeoJson(force);
+      setWeatherDistricts(
+        geoJson.features.map((feature) => ({
+          id: feature.properties.district_id ?? feature.properties.district_name ?? "",
+          name: feature.properties.district_name ?? "Район не указан",
+          latitude: feature.properties.latitude ?? 0,
+          longitude: feature.properties.longitude ?? 0,
+        })),
+      );
       setWeatherGeoJson(geoJson);
 
       if (!weatherDate) {
-        setWeatherDate(forecast.districts[0]?.daily[0]?.date ?? "");
+        setWeatherDate(
+          geoJson.features[0]?.properties.daily?.[0]?.date ??
+            geoJson.features[0]?.properties.date ??
+            "",
+        );
       }
     } catch {
       setWeatherError("Не удалось получить метеоданные");
@@ -119,79 +124,107 @@ export default function MapPage() {
   }, [districtGeoJson, districts, filters.districtId]);
 
   const weatherDateOptions = useMemo(() => {
-    const firstForecast = weatherForecast?.districts[0];
     const labels = ["сегодня", "завтра", "послезавтра"];
+    const firstFeatureDaily = weatherGeoJson?.features[0]?.properties.daily ?? [];
+    const dates = firstFeatureDaily.length > 0
+      ? firstFeatureDaily.map((day) => day.date)
+      : Array.from(
+          new Set(
+            (weatherGeoJson?.features ?? [])
+              .map((feature) => feature.properties.date)
+              .filter(Boolean),
+          ),
+        );
 
-    return (firstForecast?.daily ?? []).slice(0, 3).map((day, index) => ({
-      value: day.date,
-      label: `${labels[index] ?? day.date} (${day.date})`,
+    return dates.slice(0, 3).map((date, index) => ({
+      value: date ?? "",
+      label: `${labels[index] ?? date} (${date})`,
     }));
-  }, [weatherForecast]);
+  }, [weatherGeoJson]);
 
   const weatherWarning = useMemo(() => {
-    const warnings = weatherForecast?.districts
-      .map((district) => district.warning)
-      .filter(Boolean);
-    return weatherGeoJson?.meta?.warnings?.[0] ?? weatherGeoJson?.warning ?? warnings?.[0] ?? "";
-  }, [weatherForecast, weatherGeoJson]);
+    if (weatherGeoJson?.meta?.warnings?.[0] || weatherGeoJson?.warning) {
+      return weatherGeoJson.meta?.warnings?.[0] ?? weatherGeoJson.warning ?? "";
+    }
+
+    return weatherGeoJson?.features.find((feature) => feature.properties.warning)?.properties.warning ?? "";
+  }, [weatherGeoJson]);
 
   const weatherSource =
     weatherGeoJson?.meta?.readable_source ??
-    weatherForecast?.source ??
     weatherGeoJson?.features[0]?.properties.source ??
     "Open-Meteo";
   const openMeteoCount = weatherGeoJson?.meta?.open_meteo_count ?? 0;
   const reserveCount =
-    (weatherGeoJson?.meta?.mock_count ?? 0) + (weatherGeoJson?.meta?.unavailable_count ?? 0);
+    (weatherGeoJson?.meta?.fallback_count ?? 0) + (weatherGeoJson?.meta?.unavailable_count ?? 0);
   const selectedHistoryInfo = useMemo(() => {
-    const visibleForecasts =
+    const visibleFeatures =
       weatherDistrict === "all"
-        ? weatherForecast?.districts ?? []
-        : weatherForecast?.districts.filter((district) => district.district_id === weatherDistrict) ?? [];
-    const selectedForecast = [...visibleForecasts].sort(
-      (first, second) => second.dry_period_days - first.dry_period_days,
+        ? weatherGeoJson?.features ?? []
+        : weatherGeoJson?.features.filter((feature) => feature.properties.district_id === weatherDistrict) ?? [];
+    const selectedFeature = [...visibleFeatures].sort(
+      (first, second) => (second.properties.dry_period_days ?? 0) - (first.properties.dry_period_days ?? 0),
     )[0];
+    const properties = selectedFeature?.properties;
 
     return {
       isSummary: weatherDistrict === "all",
       historyDays:
-        selectedForecast?.history_days_requested ??
+        properties?.history_days_requested ??
         weatherGeoJson?.meta?.history_days_requested ??
         20,
-      lastSignificantRainDate: selectedForecast?.last_significant_rain_date ?? "",
-      lastSignificantRainMm: selectedForecast?.last_significant_rain_mm ?? null,
-      dryPeriodDays: selectedForecast?.dry_period_days ?? null,
+      lastSignificantRainDate: properties?.last_significant_rain_date ?? "",
+      lastSignificantRainMm: properties?.last_significant_rain_mm ?? null,
+      dryPeriodDays: properties?.dry_period_days ?? null,
     };
-  }, [weatherDistrict, weatherForecast, weatherGeoJson]);
+  }, [weatherDistrict, weatherGeoJson]);
 
   const selectedWeatherData = useMemo(() => {
-    if (weatherForecast) {
-      return buildWeatherGeoJsonFromForecast(
-        weatherForecast.districts,
-        weatherGeoJson,
-        weatherDate,
-        weatherDistrict,
-        weatherHazardClass,
-      );
-    }
-
     if (!weatherGeoJson) {
       return null;
     }
 
     return {
       ...weatherGeoJson,
-      features: weatherGeoJson.features.filter((feature) => {
-        const districtMatches =
-          weatherDistrict === "all" || feature.properties.district_id === weatherDistrict;
-        const dateMatches = !weatherDate || !feature.properties.date || feature.properties.date === weatherDate;
-        const classMatches =
-          weatherHazardClass === "all" ||
-          feature.properties.weather_hazard_class === weatherHazardClass;
-        return districtMatches && dateMatches && classMatches;
-      }),
+      features: weatherGeoJson.features
+        .filter((feature) => {
+          const selectedDay =
+            feature.properties.daily?.find((day) => day.date === weatherDate) ??
+            feature.properties.daily?.[0];
+          const districtMatches =
+            weatherDistrict === "all" || feature.properties.district_id === weatherDistrict;
+          const dateMatches = !weatherDate || !selectedDay || selectedDay.date === weatherDate;
+          const classMatches =
+            weatherHazardClass === "all" ||
+            (selectedDay?.weather_hazard_class ?? feature.properties.weather_hazard_class) === weatherHazardClass;
+          return districtMatches && dateMatches && classMatches;
+        })
+        .map((feature) => {
+          const selectedDay =
+            feature.properties.daily?.find((day) => day.date === weatherDate) ??
+            feature.properties.daily?.[0];
+
+          if (!selectedDay) {
+            return feature;
+          }
+
+          return {
+            ...feature,
+            properties: {
+              ...feature.properties,
+              date: selectedDay.date,
+              temperature_c: selectedDay.temperature_c,
+              dew_point_c: selectedDay.dew_point_c,
+              precipitation_mm: selectedDay.precipitation_mm,
+              nesterov_index: selectedDay.nesterov_index,
+              weather_hazard_class: selectedDay.weather_hazard_class,
+              hazard_name: selectedDay.hazard_name,
+              color: selectedDay.color,
+            },
+          };
+        }),
     };
-  }, [weatherDate, weatherDistrict, weatherForecast, weatherGeoJson, weatherHazardClass]);
+  }, [weatherDate, weatherDistrict, weatherGeoJson, weatherHazardClass]);
 
   const selectedWeatherDistrictName = useMemo(() => {
     if (weatherDistrict === "all") {
@@ -258,7 +291,7 @@ export default function MapPage() {
               onDateChange={setWeatherDate}
               onDistrictChange={setWeatherDistrict}
               onHazardClassChange={setWeatherHazardClass}
-              onRefresh={loadWeather}
+              onRefresh={() => loadWeather(true)}
             />
             <section className="panel">
               <h2>Источник данных</h2>
@@ -267,6 +300,11 @@ export default function MapPage() {
                 <strong>{weatherSource || "Open-Meteo"}</strong>
                 <small>Получено из Open-Meteo: {openMeteoCount} районов</small>
                 <small>Резервные данные: {reserveCount} районов</small>
+                <small>
+                  Кэш: {weatherGeoJson?.meta?.cache_hits ?? 0} попаданий,
+                  {" "}
+                  {weatherGeoJson?.meta?.cache_misses ?? 0} новых расчётов
+                </small>
                 <small>Учтена история погоды: {selectedHistoryInfo.historyDays} дней</small>
                 <small>
                   {selectedHistoryInfo.isSummary
@@ -305,67 +343,4 @@ export default function MapPage() {
       </section>
     </div>
   );
-}
-
-function buildWeatherGeoJsonFromForecast(
-  forecasts: DistrictWeatherForecast[],
-  boundariesGeoJson: WeatherGeoJsonResponse | null,
-  selectedDate: string,
-  selectedDistrict: string,
-  selectedHazardClass: string,
-): WeatherFeatureCollection {
-  const boundaryFeatures = boundariesGeoJson?.features ?? [];
-  const features: WeatherFeature[] = forecasts
-    .filter((forecast) => selectedDistrict === "all" || forecast.district_id === selectedDistrict)
-    .reduce<WeatherFeature[]>((acc, forecast) => {
-      const selectedDay =
-        forecast.daily.find((day) => day.date === selectedDate) ?? forecast.daily[0];
-      const boundaryFeature = boundaryFeatures.find(
-        (feature) =>
-          feature.properties.district_id === forecast.district_id ||
-          feature.properties.district_name === forecast.district_name,
-      );
-
-      if (!selectedDay || !boundaryFeature?.geometry) {
-        return acc;
-      }
-
-      if (
-        selectedHazardClass !== "all" &&
-        selectedDay.weather_hazard_class !== selectedHazardClass
-      ) {
-        return acc;
-      }
-
-      acc.push({
-        type: "Feature",
-        properties: {
-          district_id: forecast.district_id,
-          district_name: forecast.district_name,
-          date: selectedDay.date,
-          temperature_c: selectedDay.temperature_c,
-          dew_point_c: selectedDay.dew_point_c,
-          precipitation_mm: selectedDay.precipitation_mm,
-          nesterov_index: selectedDay.nesterov_index,
-          weather_hazard_class: selectedDay.weather_hazard_class,
-          hazard_name: selectedDay.hazard_name,
-          color: selectedDay.color,
-          source: forecast.source,
-          history_days_requested: forecast.history_days_requested,
-          history_days_used: forecast.history_days_used,
-          last_significant_rain_date: forecast.last_significant_rain_date,
-          last_significant_rain_mm: forecast.last_significant_rain_mm,
-          dry_period_days: forecast.dry_period_days,
-          history_used: forecast.history_used,
-        },
-        geometry: boundaryFeature.geometry,
-      });
-
-      return acc;
-    }, []);
-
-  return {
-    type: "FeatureCollection",
-    features,
-  };
 }

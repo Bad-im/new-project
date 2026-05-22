@@ -1,0 +1,8 @@
+rasterio
+numpy
+pandas
+requests
+pyproj
+scikit-learn
+torch
+torchvision

@@ -1,12 +1,21 @@
 import { useEffect } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import DistrictBoundaryLayer from "./DistrictBoundaryLayer";
+import SatelliteLayer from "./SatelliteLayer";
 import WeatherLayer from "./WeatherLayer";
 import { DistrictFeatureCollection } from "../api/districtApi";
+import type {
+  SatelliteImageBounds,
+  SatelliteAnalysisSummary,
+  SatellitePatchFeatureCollection,
+} from "../api/satelliteApi";
 import { WeatherFeatureCollection } from "../api/weatherApi";
 
 type MapViewProps = {
   districtData: DistrictFeatureCollection | null;
+  satelliteData?: SatellitePatchFeatureCollection | null;
+  satelliteImageBounds?: SatelliteImageBounds[];
+  satelliteSummary?: SatelliteAnalysisSummary | null;
   weatherData?: WeatherFeatureCollection | null;
   showDistricts?: boolean;
   showWeather?: boolean;
@@ -17,6 +26,9 @@ type MapViewProps = {
 
 export default function MapView({
   districtData,
+  satelliteData = null,
+  satelliteImageBounds = [],
+  satelliteSummary = null,
   weatherData = null,
   showDistricts = true,
   showWeather = false,
@@ -44,7 +56,15 @@ export default function MapView({
         />
       )}
       <MapResizeHandler resizeKey={resizeKey} />
+      <SatelliteFitBounds summary={showSatellite ? satelliteSummary : null} />
       {showDistricts && <DistrictBoundaryLayer data={districtData} />}
+      {showSatellite && (
+        <SatelliteLayer
+          data={satelliteData}
+          imageBoundsList={satelliteImageBounds}
+          summary={satelliteSummary}
+        />
+      )}
       {showWeather && <WeatherLayer data={weatherData} opacity={weatherOpacity} />}
     </MapContainer>
   );
@@ -64,6 +84,30 @@ function MapResizeHandler({ resizeKey }: { resizeKey: string }) {
 
     return () => resizeObserver.disconnect();
   }, [map, resizeKey]);
+
+  return null;
+}
+
+function SatelliteFitBounds({ summary }: { summary: SatelliteAnalysisSummary | null }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!summary) {
+      return;
+    }
+
+    const { image_bounds: bounds } = summary;
+    map.fitBounds(
+      [
+        [bounds.bottom, bounds.left],
+        [bounds.top, bounds.right],
+      ],
+      {
+        maxZoom: 13,
+        padding: [24, 24],
+      },
+    );
+  }, [map, summary]);
 
   return null;
 }

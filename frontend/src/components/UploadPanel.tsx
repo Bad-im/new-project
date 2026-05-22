@@ -3,11 +3,18 @@ import { ChangeEvent } from "react";
 type UploadPanelProps = {
   selectedFileName: string;
   onFileSelect: (fileName: string) => void;
+  onFileChange?: (file: File | null) => void;
 };
 
-export default function UploadPanel({ selectedFileName, onFileSelect }: UploadPanelProps) {
+export default function UploadPanel({
+  selectedFileName,
+  onFileChange,
+  onFileSelect,
+}: UploadPanelProps) {
   const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    onFileSelect(event.target.files?.[0]?.name ?? "");
+    const file = event.target.files?.[0] ?? null;
+    onFileSelect(file?.name ?? "");
+    onFileChange?.(file);
   };
 
   return (
@@ -15,8 +22,8 @@ export default function UploadPanel({ selectedFileName, onFileSelect }: UploadPa
       <label className="upload-zone">
         <span>Загрузить GeoTIFF</span>
         <strong>Выберите файл спутникового снимка</strong>
-        <small>На текущем этапе файл не обрабатывается, имя используется для сценария анализа.</small>
-        <input type="file" accept=".tif,.tiff,.geotiff" onChange={handleFileChange} />
+        <small>Ожидается 7 каналов Sentinel-2: B2, B3, B4, B5, B8, B11, B12.</small>
+        <input type="file" accept=".tif,.tiff" onChange={handleFileChange} />
       </label>
       <p className="file-name">
         {selectedFileName ? `Выбран файл: ${selectedFileName}` : "Файл не выбран"}

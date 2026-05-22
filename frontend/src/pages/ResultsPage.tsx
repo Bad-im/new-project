@@ -1,110 +1,89 @@
-import { useMemo, useState } from "react";
-import ProtectedPage from "../components/ProtectedPage";
-import ResultsTable, { ProcessingResult } from "../components/ResultsTable";
-import { districts, hazardClassFilters, statusFilters } from "../data/options";
-
-const demoResults: ProcessingResult[] = [
-  {
-    id: "RUN-001",
-    district: "Баргузинский район",
-    imageDate: "2026-04-20",
-    channels: "B2, B3, B4, B8",
-    zoneCount: 5,
-    maxClass: 5,
-    status: "Результат получен",
-  },
-  {
-    id: "RUN-002",
-    district: "Кабанский район",
-    imageDate: "2026-04-18",
-    channels: "B2, B3, B4, B8, B11, B12",
-    zoneCount: 3,
-    maxClass: 4,
-    status: "Результат получен",
-  },
-  {
-    id: "RUN-003",
-    district: "Иволгинский район",
-    imageDate: "2026-04-15",
-    channels: "B2, B3, B4, B8",
-    zoneCount: 0,
-    maxClass: 2,
-    status: "В обработке",
-  },
-];
+import { useEffect, useMemo, useState } from "react";
+import {
+  SatelliteAnalysisListItem,
+  getSatelliteAnalyses,
+  getSatelliteAnalysisDetail,
+} from "../api/satelliteApi";
+import SatelliteAnalysesTable from "../components/SatelliteAnalysesTable";
+import { hazardClassFilters } from "../data/options";
 
 type ResultsPageProps = {
-  isAdmin: boolean;
-  onLogin: () => void;
-  onOpenMap: () => void;
+  onOpenMap: (analysisId?: string) => void;
 };
 
-export default function ResultsPage({ isAdmin, onLogin, onOpenMap }: ResultsPageProps) {
-  const [district, setDistrict] = useState("Все районы");
+export default function ResultsPage({ onOpenMap }: ResultsPageProps) {
   const [hazardClass, setHazardClass] = useState("all");
-  const [status, setStatus] = useState("Все статусы");
+  const [analyses, setAnalyses] = useState<SatelliteAnalysisListItem[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const filteredResults = useMemo(
     () =>
-      demoResults.filter((result) => {
-        const districtMatches = district === "Все районы" || result.district === district;
-        const classMatches = hazardClass === "all" || String(result.maxClass) === hazardClass;
-        const statusMatches = status === "Все статусы" || result.status === status;
-        return districtMatches && classMatches && statusMatches;
-      }),
-    [district, hazardClass, status],
+      analyses.filter((analysis) => (
+        hazardClass === "all" || String(analysis.max_class) === hazardClass
+      )),
+    [analyses, hazardClass],
   );
 
+  const loadAnalyses = async () => {
+    setIsLoading(true);
+    setError("");
+
+    try {
+      setAnalyses(await getSatelliteAnalyses());
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить результаты");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAnalyses();
+  }, []);
+
+  const handleOpenMap = async (analysisId: string) => {
+    try {
+      await getSatelliteAnalysisDetail(analysisId);
+      onOpenMap(analysisId);
+    } catch (openError) {
+      setError(openError instanceof Error ? openError.message : "Не удалось открыть анализ");
+    }
+  };
+
   return (
-    <ProtectedPage
-      isAdmin={isAdmin}
-      onLogin={onLogin}
-      message="Для просмотра результатов обработки необходимо войти как администратор."
-    >
-      <div className="page-stack">
-        <section className="section-header">
-          <p className="eyebrow">Журнал обработок</p>
-          <h1>Результаты</h1>
-          <p>Тестовая таблица запусков анализа для административного режима.</p>
-        </section>
+    <div className="page-stack">
+      <section className="section-header">
+        <p className="eyebrow">Журнал обработок</p>
+        <h1>Результаты</h1>
+        <p>Список сохранённых спутниковых анализов из файлового хранилища.</p>
+      </section>
 
-        <section className="info-card">
-          <h2>Фильтры результатов</h2>
-          <div className="form-grid">
-            <label className="field">
-              <span>Район</span>
-              <select value={district} onChange={(event) => setDistrict(event.target.value)}>
-                {districts.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Класс пожароопасности</span>
-              <select
-                value={hazardClass}
-                onChange={(event) => setHazardClass(event.target.value)}
-              >
-                {hazardClassFilters.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>Статус</span>
-              <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                {statusFilters.map((item) => (
-                  <option key={item}>{item}</option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </section>
+      <section className="info-card">
+        <h2>Фильтры результатов</h2>
+        <div className="form-grid">
+          <label className="field">
+            <span>Класс пожароопасности</span>
+            <select value={hazardClass} onChange={(event) => setHazardClass(event.target.value)}>
+              {hazardClassFilters.map((item) => (
+                <option key={item.value} value={item.value}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <button className="secondary-button" type="button" onClick={loadAnalyses}>
+          Обновить журнал
+        </button>
+      </section>
 
-        <ResultsTable results={filteredResults} onOpenMap={onOpenMap} />
-      </div>
-    </ProtectedPage>
+      {error && <p className="error-message">{error}</p>}
+      <SatelliteAnalysesTable
+        analyses={filteredResults}
+        isLoading={isLoading}
+        onOpenMap={handleOpenMap}
+      />
+    </div>
   );
 }

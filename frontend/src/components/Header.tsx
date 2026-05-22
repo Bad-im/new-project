@@ -5,14 +5,16 @@ import Navigation from "./Navigation";
 type HeaderProps = {
   activePage: Page;
   isAdmin: boolean;
+  loginError?: string;
   onNavigate: (page: Page) => void;
-  onLogin: () => void;
+  onLogin: (username: string, password: string) => Promise<void>;
   onLogout: () => void;
 };
 
 export default function Header({
   activePage,
   isAdmin,
+  loginError = "",
   onNavigate,
   onLogin,
   onLogout,
@@ -27,7 +29,12 @@ export default function Header({
         </span>
       </button>
       <Navigation activePage={activePage} onNavigate={onNavigate} />
-      <LoginButton isAdmin={isAdmin} onLogin={onLogin} onLogout={onLogout} />
+      <LoginButton
+        isAdmin={isAdmin}
+        loginError={loginError}
+        onLogin={onLogin}
+        onLogout={onLogout}
+      />
     </header>
   );
 }

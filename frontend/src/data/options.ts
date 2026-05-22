@@ -8,11 +8,11 @@ export const districts = [
 
 export const hazardClassFilters = [
   { value: "all", label: "Все классы" },
-  { value: "1", label: "1 - низкая" },
-  { value: "2", label: "2 - умеренная" },
-  { value: "3", label: "3 - средняя" },
-  { value: "4", label: "4 - высокая" },
-  { value: "5", label: "5 - чрезвычайная" },
+  { value: "1", label: "I - отсутствует" },
+  { value: "2", label: "II - малая" },
+  { value: "3", label: "III - средняя" },
+  { value: "4", label: "IV - высокая" },
+  { value: "5", label: "V - чрезвычайная" },
 ] as const;
 
 export const statusFilters = [

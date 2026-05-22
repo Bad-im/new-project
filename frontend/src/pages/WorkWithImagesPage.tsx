@@ -1,113 +1,173 @@
-import { useMemo, useState } from "react";
-import { HazardFeatureCollection, runPrediction } from "../api/predictionApi";
+import { useEffect, useMemo, useState } from "react";
+import {
+  SatelliteAnalysisDetailResponse,
+  SatelliteAnalysisListItem,
+  SatelliteAnalysisSuccessResponse,
+  analyzeSatelliteImage,
+  deleteAllSatelliteAnalyses,
+  deleteSatelliteAnalysis,
+  getSatelliteAnalyses,
+  getSatelliteAnalysisDetail,
+} from "../api/satelliteApi";
 import InfoCard from "../components/InfoCard";
-import ResultsTable, { ProcessingResult } from "../components/ResultsTable";
+import SatelliteAnalysesTable from "../components/SatelliteAnalysesTable";
+import { getSatelliteClassName } from "../components/SatelliteLayer";
 import StatCard from "../components/StatCard";
 import UploadPanel from "../components/UploadPanel";
-import { getMaxHazardClass } from "../components/HazardStats";
-import { districts, hazardClassFilters, statusFilters } from "../data/options";
+import { hazardClassFilters } from "../data/options";
 
 type WorkWithImagesPageProps = {
   isAdmin: boolean;
+  satelliteAnalysis: SatelliteAnalysisSuccessResponse | SatelliteAnalysisDetailResponse | null;
+  onSatelliteAnalysis: (
+    analysis: SatelliteAnalysisSuccessResponse | SatelliteAnalysisDetailResponse | null,
+  ) => void;
   onLogin: () => void;
-  onOpenMap: () => void;
+  onOpenMap: (analysisId?: string) => void;
 };
 
 type WorkTab = "analysis" | "journal";
 
-const demoResults: ProcessingResult[] = [
-  {
-    id: "RUN-001",
-    district: "Баргузинский район",
-    imageDate: "2026-04-20",
-    channels: "B2, B3, B4, B8",
-    zoneCount: 5,
-    maxClass: 5,
-    status: "Результат получен",
-  },
-  {
-    id: "RUN-002",
-    district: "Кабанский район",
-    imageDate: "2026-04-18",
-    channels: "B2, B3, B4, B8, B11, B12",
-    zoneCount: 3,
-    maxClass: 4,
-    status: "Результат получен",
-  },
-  {
-    id: "RUN-003",
-    district: "Иволгинский район",
-    imageDate: "2026-04-15",
-    channels: "B2, B3, B4, B8",
-    zoneCount: 0,
-    maxClass: 2,
-    status: "В обработке",
-  },
-];
-
 export default function WorkWithImagesPage({
   isAdmin,
+  satelliteAnalysis,
+  onSatelliteAnalysis,
   onLogin,
   onOpenMap,
 }: WorkWithImagesPageProps) {
   const [activeTab, setActiveTab] = useState<WorkTab>("analysis");
   const [selectedFileName, setSelectedFileName] = useState("");
-  const [district, setDistrict] = useState("Баргузинский район");
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [imageDate, setImageDate] = useState("2026-04-20");
-  const [channels, setChannels] = useState("B2, B3, B4, B8");
+  const [channels, setChannels] = useState("B2, B3, B4, B5, B8, B11, B12");
   const [isRunning, setIsRunning] = useState(false);
-  const [result, setResult] = useState<HazardFeatureCollection | null>(null);
   const [error, setError] = useState("");
-  const [resultDistrict, setResultDistrict] = useState("Все районы");
+  const [warning, setWarning] = useState("");
   const [hazardClass, setHazardClass] = useState("all");
-  const [status, setStatus] = useState("Все статусы");
+  const [analyses, setAnalyses] = useState<SatelliteAnalysisListItem[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+  const [openError, setOpenError] = useState("");
 
-  const zoneCount = result?.features.length ?? 0;
-  const maxClass = useMemo(() => getMaxHazardClass(result), [result]);
+  const zoneCount = satelliteAnalysis?.summary.processed_patches ?? 0;
+  const maxClass = satelliteAnalysis?.summary.max_class
+    ? getSatelliteClassName(satelliteAnalysis.summary.max_class)
+    : "-";
   const filteredResults = useMemo(
     () =>
-      demoResults.filter((item) => {
-        const districtMatches =
-          resultDistrict === "Все районы" || item.district === resultDistrict;
-        const classMatches = hazardClass === "all" || String(item.maxClass) === hazardClass;
-        const statusMatches = status === "Все статусы" || item.status === status;
-        return districtMatches && classMatches && statusMatches;
+      analyses.filter((item) => {
+        return hazardClass === "all" || String(item.max_class) === hazardClass;
       }),
-    [hazardClass, resultDistrict, status],
+    [analyses, hazardClass],
   );
 
-  const handleRun = async () => {
-    setIsRunning(true);
-    setError("");
-    setResult(null);
+  const loadHistory = async () => {
+    setIsHistoryLoading(true);
+    setHistoryError("");
 
     try {
-      const data = await runPrediction();
-      setResult(data);
-    } catch {
-      setError("Не удалось выполнить тестовый анализ");
+      setAnalyses(await getSatelliteAnalyses());
+    } catch (historyLoadError) {
+      setHistoryError(
+        historyLoadError instanceof Error
+          ? historyLoadError.message
+          : "Не удалось загрузить историю анализов",
+      );
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === "journal") {
+      void loadHistory();
+    }
+  }, [activeTab]);
+
+  const handleRun = async () => {
+    if (!selectedFile) {
+      setError("Выберите GeoTIFF-файл перед запуском анализа.");
+      return;
+    }
+
+    setIsRunning(true);
+    setError("");
+    setWarning("");
+
+    try {
+      const data = await analyzeSatelliteImage(selectedFile, imageDate);
+      onSatelliteAnalysis(data);
+      void loadHistory();
+
+      if (data.geojson.features.length === 0) {
+        setWarning("GeoJSON пустой: все патчи были пропущены или снимок меньше 512x512.");
+      }
+    } catch (analysisError) {
+      setError(
+        analysisError instanceof Error
+          ? analysisError.message
+          : "Не удалось выполнить спутниковую оценку",
+      );
     } finally {
       setIsRunning(false);
     }
   };
 
-  if (!isAdmin) {
-    return (
-      <section className="protected-state">
-        <div className="protected-card">
-          <p className="eyebrow">Требуется вход администратора</p>
-          <h1>Работа со спутниковыми снимками доступна только администратору.</h1>
-          <p>
-            Войдите в режим администратора, чтобы загружать GeoTIFF, запускать анализ и
-            просматривать результаты обработки.
-          </p>
-          <button className="primary-button" type="button" onClick={onLogin}>
-            Войти как администратор
-          </button>
-        </div>
-      </section>
+  const handleOpenSavedAnalysis = async (analysisId: string) => {
+    setOpenError("");
+    try {
+      const analysis = await getSatelliteAnalysisDetail(analysisId);
+      onSatelliteAnalysis(analysis);
+      onOpenMap(analysis.analysis_id);
+    } catch (analysisOpenError) {
+      setOpenError(
+        analysisOpenError instanceof Error
+          ? analysisOpenError.message
+          : "Не удалось открыть сохранённый анализ",
+      );
+    }
+  };
+
+  const handleDeleteSavedAnalysis = async (analysis: SatelliteAnalysisListItem) => {
+    const label = analysis.original_filename || analysis.analysis_id;
+    const confirmed = window.confirm(
+      `Удалить сохранённый анализ "${label}"${analysis.image_date ? ` от ${analysis.image_date}` : ""}? Это удалит исходный GeoTIFF, summary, GeoJSON и metadata.`,
     );
-  }
+
+    if (!confirmed) {
+      return;
+    }
+
+    setOpenError("");
+    try {
+      await deleteSatelliteAnalysis(analysis.analysis_id);
+      if (satelliteAnalysis?.analysis_id === analysis.analysis_id) {
+        onSatelliteAnalysis(null);
+      }
+      await loadHistory();
+    } catch (deleteError) {
+      setOpenError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить анализ");
+    }
+  };
+
+  const handleDeleteAllSavedAnalyses = async () => {
+    const confirmed = window.confirm(
+      "Удалить все сохранённые спутниковые анализы? Это удалит все исходные GeoTIFF, summary, GeoJSON и metadata из файлового хранилища.",
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setOpenError("");
+    try {
+      await deleteAllSatelliteAnalyses();
+      onSatelliteAnalysis(null);
+      await loadHistory();
+    } catch (deleteError) {
+      setOpenError(deleteError instanceof Error ? deleteError.message : "Не удалось удалить анализы");
+    }
+  };
 
   return (
     <div className="page-stack work-page">
@@ -115,7 +175,7 @@ export default function WorkWithImagesPage({
         <p className="eyebrow">Администрирование обработки</p>
         <h1>Работа со снимками</h1>
         <p>
-          Загрузка GeoTIFF, запуск демонстрационного анализа и просмотр журнала результатов
+          Загрузка GeoTIFF, запуск спутникового анализа и просмотр журнала результатов
           собраны в одном административном разделе.
         </p>
       </section>
@@ -141,16 +201,36 @@ export default function WorkWithImagesPage({
         </button>
       </div>
 
-      {activeTab === "analysis" && (
+      {activeTab === "analysis" && !isAdmin && (
+        <section className="protected-state">
+          <div className="protected-card">
+            <p className="eyebrow">Требуется вход администратора</p>
+            <h1>Загрузка GeoTIFF и запуск анализа доступны только администратору.</h1>
+            <p>
+              Без входа можно открыть вкладку журнала и просматривать уже сохранённые результаты
+              спутникового анализа.
+            </p>
+            <button className="primary-button" type="button" onClick={onLogin}>
+              Войти как администратор
+            </button>
+          </div>
+        </section>
+      )}
+
+      {activeTab === "analysis" && isAdmin && (
         <>
           <section className="analysis-grid">
-            <UploadPanel selectedFileName={selectedFileName} onFileSelect={setSelectedFileName} />
+            <UploadPanel
+              selectedFileName={selectedFileName}
+              onFileChange={setSelectedFile}
+              onFileSelect={setSelectedFileName}
+            />
             <InfoCard title="Поддерживаемые данные">
               <ul className="clean-list">
                 <li>GeoTIFF;</li>
                 <li>многоканальные снимки Sentinel-2;</li>
-                <li>B2, B3, B4, B8;</li>
-                <li>опционально B11, B12.</li>
+                <li>ровно 7 каналов: B2, B3, B4, B5, B8, B11, B12;</li>
+                <li>CRS и геопривязка обязательны.</li>
               </ul>
             </InfoCard>
           </section>
@@ -158,18 +238,6 @@ export default function WorkWithImagesPage({
           <section className="info-card">
             <h2>Параметры анализа</h2>
             <div className="form-grid">
-              <label className="field">
-                <span>Район</span>
-                <select value={district} onChange={(event) => setDistrict(event.target.value)}>
-                  {districts
-                    .filter((item) => item !== "Все районы")
-                    .map((item) => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                </select>
-              </label>
               <label className="field">
                 <span>Дата снимка</span>
                 <input
@@ -181,22 +249,23 @@ export default function WorkWithImagesPage({
               <label className="field">
                 <span>Набор каналов</span>
                 <select value={channels} onChange={(event) => setChannels(event.target.value)}>
-                  <option>B2, B3, B4, B8</option>
-                  <option>B2, B3, B4, B8, B11, B12</option>
+                  <option>B2, B3, B4, B5, B8, B11, B12</option>
                 </select>
               </label>
               <label className="field">
                 <span>Режим анализа</span>
-                <select defaultValue="test">
-                  <option value="test">Демонстрационный режим</option>
-                  <option value="ml" disabled>
-                    Нейросетевая модель будет подключена после дообучения
-                  </option>
+                <select defaultValue="ml">
+                  <option value="ml">Fine-tuned ResNet18 inference</option>
                 </select>
               </label>
             </div>
             <p className="inline-status">
-              Нейросетевая модель будет подключена после дообучения.
+              Модель классифицирует снимок неперекрывающимися патчами 512x512. Итоговая оценка
+              снимка складывается из распределения классов по патчам.
+            </p>
+            <p className="inline-status">
+              Район определяется по географическому положению загруженного GeoTIFF. Один снимок
+              может пересекать несколько муниципальных районов.
             </p>
             <div className="form-actions">
               <button
@@ -205,23 +274,28 @@ export default function WorkWithImagesPage({
                 disabled={isRunning}
                 onClick={handleRun}
               >
-                {isRunning ? "Анализ выполняется" : "Запустить анализ"}
+                {isRunning ? "Спутниковая оценка выполняется" : "Выполнить спутниковую оценку"}
               </button>
             </div>
             {error && <p className="error-message">{error}</p>}
+            {warning && <p className="inline-status warning">{warning}</p>}
           </section>
 
-          {result && (
+          {satelliteAnalysis && (
             <section className="result-summary">
               <div>
                 <p className="eyebrow">Результат получен</p>
-                <h2>Демонстрационная классификация завершена</h2>
+                <h2>Спутниковая классификация по патчам завершена</h2>
               </div>
               <div className="stat-grid narrow">
-                <StatCard label="Количество зон" value={zoneCount} />
+                <StatCard label="Обработано патчей" value={zoneCount} />
                 <StatCard label="Максимальный класс" value={maxClass} />
               </div>
-              <button className="secondary-button" type="button" onClick={onOpenMap}>
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => onOpenMap(satelliteAnalysis.analysis_id)}
+              >
                 Открыть на карте
               </button>
             </section>
@@ -234,20 +308,9 @@ export default function WorkWithImagesPage({
           <section className="info-card">
             <h2>Фильтры результатов</h2>
             <p className="inline-status">
-              В текущем прототипе журнал содержит демонстрационные записи.
+              Журнал показывает реальные сохранённые спутниковые анализы из файлового хранилища.
             </p>
             <div className="form-grid">
-              <label className="field">
-                <span>Район</span>
-                <select
-                  value={resultDistrict}
-                  onChange={(event) => setResultDistrict(event.target.value)}
-                >
-                  {districts.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
               <label className="field">
                 <span>Класс пожароопасности</span>
                 <select
@@ -261,18 +324,30 @@ export default function WorkWithImagesPage({
                   ))}
                 </select>
               </label>
-              <label className="field">
-                <span>Статус</span>
-                <select value={status} onChange={(event) => setStatus(event.target.value)}>
-                  {statusFilters.map((item) => (
-                    <option key={item}>{item}</option>
-                  ))}
-                </select>
-              </label>
             </div>
+            <button className="secondary-button" type="button" onClick={loadHistory}>
+              Обновить журнал
+            </button>
+            {isAdmin && analyses.length > 0 && (
+              <button
+                className="secondary-button danger"
+                type="button"
+                onClick={handleDeleteAllSavedAnalyses}
+              >
+                Удалить все
+              </button>
+            )}
           </section>
 
-          <ResultsTable results={filteredResults} onOpenMap={onOpenMap} />
+          {historyError && <p className="error-message">{historyError}</p>}
+          {openError && <p className="error-message">{openError}</p>}
+          <SatelliteAnalysesTable
+            analyses={filteredResults}
+            canDelete={isAdmin}
+            isLoading={isHistoryLoading}
+            onDelete={handleDeleteSavedAnalysis}
+            onOpenMap={handleOpenSavedAnalysis}
+          />
         </>
       )}
     </div>

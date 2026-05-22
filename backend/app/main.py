@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.auth import router as auth_router
 from app.api.districts import router as districts_router
 from app.api.health import router as health_router
 from app.api.prediction import router as prediction_router
+from app.api.satellite import router as satellite_router
 from app.api.weather import router as weather_router
 
 app = FastAPI(
@@ -34,6 +36,8 @@ def root() -> dict[str, str]:
 
 
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(prediction_router)
+app.include_router(satellite_router)
 app.include_router(weather_router)
 app.include_router(districts_router)

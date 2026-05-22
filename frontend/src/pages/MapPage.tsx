@@ -1,18 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
-import FilterPanel, { MapFilters } from "../components/FilterPanel";
-import HazardStats from "../components/HazardStats";
 import LayerSwitcher, { MapMode } from "../components/LayerSwitcher";
 import MapView from "../components/MapView";
+import {
+  satelliteClassItems,
+} from "../components/SatelliteLayer";
+import SatelliteSummaryPanel from "../components/SatelliteSummaryPanel";
 import WeatherForecastPanel from "../components/WeatherForecastPanel";
 import WeatherLegend from "../components/WeatherLegend";
 import WeatherStats from "../components/WeatherStats";
-import { getDistrictName } from "../components/DistrictBoundaryLayer";
 import {
-  District,
   DistrictFeatureCollection,
-  getDistricts,
   getDistrictsGeoJson,
 } from "../api/districtApi";
+import {
+  SatelliteAnalysisDetailResponse,
+  SatelliteAnalysisListItem,
+  SatelliteAnalysisSuccessResponse,
+  SatelliteAnalysisSummary,
+  SatelliteImageBounds,
+  SatellitePatchClass,
+  SatellitePatchFeatureCollection,
+  getSatelliteAnalyses,
+  getSatelliteAnalysisDetail,
+} from "../api/satelliteApi";
 import {
   WeatherDistrict,
   WeatherGeoJsonResponse,
@@ -20,14 +30,144 @@ import {
   getWeatherForecastGeoJson,
 } from "../api/weatherApi";
 
-const defaultFilters: MapFilters = {
-  districtId: "all",
+type MapPageProps = {
+  satelliteAnalysis: SatelliteAnalysisSuccessResponse | SatelliteAnalysisDetailResponse | null;
+  onSatelliteAnalysis: (
+    analysis: SatelliteAnalysisSuccessResponse | SatelliteAnalysisDetailResponse | null,
+  ) => void;
 };
 
-export default function MapPage() {
-  const [filters, setFilters] = useState<MapFilters>(defaultFilters);
-  const [mode, setMode] = useState<MapMode>("weather");
-  const [districts, setDistricts] = useState<District[]>([]);
+type SatelliteViewMode = "single" | "all";
+
+const allSatelliteClasses: SatellitePatchClass[] = [1, 2, 3, 4, 5];
+
+function isDetailAnalysis(
+  analysis: SatelliteAnalysisSuccessResponse | SatelliteAnalysisDetailResponse | null,
+): analysis is SatelliteAnalysisDetailResponse {
+  return Boolean(analysis && "metadata" in analysis);
+}
+
+function formatDate(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("ru-RU");
+}
+
+function mergeBounds(boundsList: SatelliteImageBounds[]): SatelliteImageBounds {
+  return {
+    left: Math.min(...boundsList.map((bounds) => bounds.left)),
+    bottom: Math.min(...boundsList.map((bounds) => bounds.bottom)),
+    right: Math.max(...boundsList.map((bounds) => bounds.right)),
+    top: Math.max(...boundsList.map((bounds) => bounds.top)),
+  };
+}
+
+function emptySummary(imageBounds?: SatelliteImageBounds): SatelliteAnalysisSummary {
+  return {
+    total_patches: 0,
+    processed_patches: 0,
+    skipped_patches: 0,
+    class_counts: Object.fromEntries(allSatelliteClasses.map((classId) => [String(classId), 0])),
+    class_percentages: Object.fromEntries(allSatelliteClasses.map((classId) => [String(classId), 0])),
+    dominant_class: null,
+    max_class: null,
+    image_bounds: imageBounds ?? { left: 0, bottom: 0, right: 0, top: 0 },
+    district_detection: "not_implemented",
+  };
+}
+
+function aggregateSummary(
+  analyses: SatelliteAnalysisDetailResponse[],
+  enabledClasses: SatellitePatchClass[],
+): SatelliteAnalysisSummary | null {
+  if (analyses.length === 0) {
+    return null;
+  }
+
+  const classCounts = Object.fromEntries(allSatelliteClasses.map((classId) => [String(classId), 0]));
+  let processedPatches = 0;
+
+  analyses.forEach((analysis) => {
+    analysis.geojson.features.forEach((feature) => {
+      const predictedClass = feature.properties.predicted_class;
+      if (enabledClasses.includes(predictedClass)) {
+        classCounts[String(predictedClass)] += 1;
+        processedPatches += 1;
+      }
+    });
+  });
+
+  const totalPatches = analyses.reduce((sum, analysis) => sum + analysis.summary.total_patches, 0);
+  const skippedPatches = analyses.reduce((sum, analysis) => sum + analysis.summary.skipped_patches, 0);
+  const classPercentages = Object.fromEntries(
+    allSatelliteClasses.map((classId) => {
+      const count = classCounts[String(classId)];
+      return [String(classId), processedPatches ? Math.round((count / processedPatches) * 10000) / 100 : 0];
+    }),
+  );
+  const visibleClassCounts = Object.entries(classCounts).filter(([, count]) => count > 0);
+  const dominantClass = visibleClassCounts.length
+    ? Number(visibleClassCounts.sort((first, second) => second[1] - first[1])[0][0]) as SatellitePatchClass
+    : null;
+  const maxClass = visibleClassCounts.length
+    ? Math.max(...visibleClassCounts.map(([classId]) => Number(classId))) as SatellitePatchClass
+    : null;
+  const boundsList = analyses.map((analysis) => analysis.summary.image_bounds);
+
+  return {
+    analysis_count: analyses.length,
+    total_patches: totalPatches,
+    processed_patches: processedPatches,
+    skipped_patches: skippedPatches,
+    class_counts: classCounts,
+    class_percentages: classPercentages,
+    dominant_class: dominantClass,
+    max_class: maxClass,
+    image_bounds: mergeBounds(boundsList),
+    district_detection: "not_implemented",
+  };
+}
+
+function buildSatelliteGeoJson(
+  analyses: SatelliteAnalysisDetailResponse[],
+  enabledClasses: SatellitePatchClass[],
+): SatellitePatchFeatureCollection | null {
+  const features = analyses.flatMap((analysis) =>
+    analysis.geojson.features
+      .filter((feature) => enabledClasses.includes(feature.properties.predicted_class))
+      .map((feature) => ({
+        ...feature,
+        properties: {
+          ...feature.properties,
+          analysis_id: analysis.analysis_id,
+          original_filename: analysis.metadata.original_filename,
+          created_at: formatDate(analysis.metadata.created_at),
+          image_date: analysis.metadata.image_date,
+        },
+      })),
+  );
+
+  return {
+    type: "FeatureCollection",
+    features,
+  };
+}
+
+export default function MapPage({ satelliteAnalysis, onSatelliteAnalysis }: MapPageProps) {
+  const initialParams = new URLSearchParams(window.location.search);
+  const [mode, setMode] = useState<MapMode>(
+    initialParams.get("mode") === "satellite" || initialParams.get("analysisId")
+      ? "satellite"
+      : "weather",
+  );
+  const [satelliteViewMode, setSatelliteViewMode] = useState<SatelliteViewMode>(
+    initialParams.get("view") === "all" ? "all" : "single",
+  );
+  const [enabledSatelliteClasses, setEnabledSatelliteClasses] =
+    useState<SatellitePatchClass[]>(allSatelliteClasses);
   const [districtGeoJson, setDistrictGeoJson] = useState<DistrictFeatureCollection | null>(null);
   const [isDistrictsLoading, setIsDistrictsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -38,22 +178,27 @@ export default function MapPage() {
   const [weatherHazardClass, setWeatherHazardClass] = useState("all");
   const [isWeatherLoading, setIsWeatherLoading] = useState(false);
   const [weatherError, setWeatherError] = useState("");
+  const [satelliteAnalyses, setSatelliteAnalyses] = useState<SatelliteAnalysisListItem[]>([]);
+  const [allSatelliteDetails, setAllSatelliteDetails] = useState<SatelliteAnalysisDetailResponse[]>([]);
+  const [selectedSatelliteAnalysisId, setSelectedSatelliteAnalysisId] = useState(
+    initialParams.get("analysisId") ?? "",
+  );
+  const [isSatelliteListLoading, setIsSatelliteListLoading] = useState(false);
+  const [isAllSatelliteLoading, setIsAllSatelliteLoading] = useState(false);
+  const [satelliteError, setSatelliteError] = useState("");
 
   useEffect(() => {
     let isMounted = true;
 
-    Promise.allSettled([getDistricts(), getDistrictsGeoJson()])
-      .then(([districtListResult, geoJsonResult]) => {
+    getDistrictsGeoJson()
+      .then((geoJson) => {
         if (isMounted) {
-          if (districtListResult.status === "fulfilled") {
-            setDistricts(districtListResult.value);
-          }
-
-          if (geoJsonResult.status === "fulfilled") {
-            setDistrictGeoJson(geoJsonResult.value);
-          } else {
-            setError("Не удалось загрузить границы районов");
-          }
+          setDistrictGeoJson(geoJson);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setError("Не удалось загрузить границы районов");
         }
       })
       .finally(() => {
@@ -100,28 +245,118 @@ export default function MapPage() {
     }
   };
 
+  const loadSatelliteAnalyses = async () => {
+    setIsSatelliteListLoading(true);
+    setSatelliteError("");
+
+    try {
+      const analyses = await getSatelliteAnalyses();
+      setSatelliteAnalyses(analyses);
+      if (!selectedSatelliteAnalysisId && analyses[0]) {
+        setSelectedSatelliteAnalysisId(analyses[0].analysis_id);
+      }
+    } catch (loadError) {
+      setSatelliteError(
+        loadError instanceof Error ? loadError.message : "Не удалось получить список анализов",
+      );
+    } finally {
+      setIsSatelliteListLoading(false);
+    }
+  };
+
   useEffect(() => {
     void loadWeather();
   }, []);
 
-  const filteredDistrictData = useMemo(() => {
-    if (!districtGeoJson) {
-      return null;
+  useEffect(() => {
+    if (mode === "satellite") {
+      void loadSatelliteAnalyses();
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const queryMode = params.get("mode");
+    const queryView = params.get("view");
+    const queryAnalysisId = params.get("analysisId");
+
+    if (queryMode === "satellite" || queryAnalysisId) {
+      setMode("satellite");
+    }
+    if (queryView === "all") {
+      setSatelliteViewMode("all");
+    }
+    if (queryAnalysisId) {
+      setSelectedSatelliteAnalysisId(queryAnalysisId);
     }
 
-    const selectedDistrictName = districts.find((district) => district.id === filters.districtId)?.name;
+    if (!queryAnalysisId) {
+      return;
+    }
 
-    return {
-      ...districtGeoJson,
-      features: districtGeoJson.features.filter((feature) => {
-        if (filters.districtId === "all") {
-          return true;
+    if (isDetailAnalysis(satelliteAnalysis) && satelliteAnalysis.analysis_id === queryAnalysisId) {
+      return;
+    }
+
+    let isMounted = true;
+    setSatelliteError("");
+    getSatelliteAnalysisDetail(queryAnalysisId)
+      .then((analysis) => {
+        if (isMounted) {
+          onSatelliteAnalysis(analysis);
         }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setSatelliteError(
+            loadError instanceof Error ? loadError.message : "Не удалось открыть сохранённый анализ",
+          );
+        }
+      });
 
-        return getDistrictName(feature.properties) === selectedDistrictName;
-      }),
+    return () => {
+      isMounted = false;
     };
-  }, [districtGeoJson, districts, filters.districtId]);
+  }, [onSatelliteAnalysis, satelliteAnalysis]);
+
+  useEffect(() => {
+    if (satelliteViewMode !== "all" || mode !== "satellite") {
+      return;
+    }
+
+    let isMounted = true;
+    setIsAllSatelliteLoading(true);
+    setSatelliteError("");
+
+    getSatelliteAnalyses()
+      .then(async (analyses) => {
+        if (isMounted) {
+          setSatelliteAnalyses(analyses);
+        }
+        const details = await Promise.all(
+          analyses.map((analysis) => getSatelliteAnalysisDetail(analysis.analysis_id)),
+        );
+        if (isMounted) {
+          setAllSatelliteDetails(details);
+        }
+      })
+      .catch((loadError) => {
+        if (isMounted) {
+          setSatelliteError(
+            loadError instanceof Error ? loadError.message : "Не удалось загрузить все снимки",
+          );
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsAllSatelliteLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [mode, satelliteViewMode]);
 
   const weatherDateOptions = useMemo(() => {
     const labels = ["сегодня", "завтра", "послезавтра"];
@@ -238,13 +473,89 @@ export default function MapPage() {
     );
   }, [selectedWeatherData, weatherDistrict, weatherDistricts]);
 
-  const selectedSatelliteDistrictName =
-    filters.districtId === "all"
-      ? "Все районы"
-      : districts.find((district) => district.id === filters.districtId)?.name ?? "-";
+  const singleAnalysis = useMemo(() => {
+    if (isDetailAnalysis(satelliteAnalysis)) {
+      return satelliteAnalysis;
+    }
+    return null;
+  }, [satelliteAnalysis]);
+
+  const visibleAnalyses = satelliteViewMode === "all"
+    ? allSatelliteDetails
+    : singleAnalysis
+      ? [singleAnalysis]
+      : [];
+  const satelliteData = useMemo(
+    () => buildSatelliteGeoJson(visibleAnalyses, enabledSatelliteClasses),
+    [enabledSatelliteClasses, visibleAnalyses],
+  );
+  const satelliteSummary = useMemo(() => {
+    if (satelliteViewMode === "all") {
+      return aggregateSummary(allSatelliteDetails, enabledSatelliteClasses);
+    }
+    if (!singleAnalysis) {
+      return null;
+    }
+    const summary = aggregateSummary([singleAnalysis], enabledSatelliteClasses);
+    return summary ?? emptySummary(singleAnalysis.summary.image_bounds);
+  }, [allSatelliteDetails, enabledSatelliteClasses, satelliteViewMode, singleAnalysis]);
+  const satelliteImageBounds = visibleAnalyses.map((analysis) => analysis.summary.image_bounds);
+
+  const updateSatelliteUrl = (viewMode: SatelliteViewMode, analysisId?: string) => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("mode", "satellite");
+    url.searchParams.set("view", viewMode);
+    if (viewMode === "single" && analysisId) {
+      url.searchParams.set("analysisId", analysisId);
+    } else {
+      url.searchParams.delete("analysisId");
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  };
+
+  const openSavedAnalysis = async (analysisId: string) => {
+    setSatelliteError("");
+    setSelectedSatelliteAnalysisId(analysisId);
+    setSatelliteViewMode("single");
+    updateSatelliteUrl("single", analysisId);
+
+    try {
+      onSatelliteAnalysis(await getSatelliteAnalysisDetail(analysisId));
+    } catch (loadError) {
+      setSatelliteError(
+        loadError instanceof Error ? loadError.message : "Не удалось открыть сохранённый анализ",
+      );
+    }
+  };
+
+  const toggleSatelliteClass = (classId: SatellitePatchClass) => {
+    setEnabledSatelliteClasses((current) => {
+      if (current.includes(classId)) {
+        return current.length > 1 ? current.filter((item) => item !== classId) : current;
+      }
+      return [...current, classId].sort((first, second) => first - second) as SatellitePatchClass[];
+    });
+  };
+
+  const handleModeChange = (nextMode: MapMode) => {
+    setMode(nextMode);
+    const url = new URL(window.location.href);
+    if (nextMode === "satellite") {
+      url.searchParams.set("mode", "satellite");
+    } else {
+      url.searchParams.delete("mode");
+      url.searchParams.delete("view");
+      url.searchParams.delete("analysisId");
+    }
+    window.history.replaceState(null, "", `${url.pathname}${url.search}`);
+  };
 
   const showDistricts = mode === "satellite";
   const showWeather = mode === "weather";
+  const mapDescription =
+    mode === "satellite"
+      ? "Карта спутниковой оценки пожарной опасности лесных территорий на основе анализа многоканальных снимков Sentinel-2."
+      : "Карта кратковременного метеопрогноза пожарной опасности на основе метеоданных.";
 
   return (
     <div className="map-workspace">
@@ -252,29 +563,97 @@ export default function MapPage() {
         <div className="map-sidebar-header">
           <p className="eyebrow">Картографический раздел</p>
           <h1>Карта пожароопасности</h1>
-          <p className="page-note">
-            Единая карта спутниковой оценки и кратковременного метеопрогноза.
-          </p>
+          <p className="page-note">{mapDescription}</p>
         </div>
-        <LayerSwitcher mode={mode} onModeChange={setMode} />
+        <LayerSwitcher mode={mode} onModeChange={handleModeChange} />
         {mode === "satellite" && (
           <>
-            <FilterPanel filters={filters} districts={districts} onChange={setFilters} />
             <section className="panel">
-              <h2>Информация о спутниковой оценке</h2>
+              <h2>Просмотр спутниковых анализов</h2>
+              <div className="segmented-control">
+                <button
+                  className={satelliteViewMode === "single" ? "segment active" : "segment"}
+                  type="button"
+                  onClick={() => {
+                    setSatelliteViewMode("single");
+                    updateSatelliteUrl("single", selectedSatelliteAnalysisId);
+                  }}
+                >
+                  Один снимок
+                </button>
+                <button
+                  className={satelliteViewMode === "all" ? "segment active" : "segment"}
+                  type="button"
+                  onClick={() => {
+                    setSatelliteViewMode("all");
+                    updateSatelliteUrl("all");
+                  }}
+                >
+                  Все снимки
+                </button>
+              </div>
+              {satelliteViewMode === "single" && (
+                <label className="field satellite-file-field">
+                  <span>Сохранённый анализ</span>
+                  <select
+                    value={selectedSatelliteAnalysisId}
+                    onChange={(event) => void openSavedAnalysis(event.target.value)}
+                  >
+                    <option value="">Выберите анализ</option>
+                    {satelliteAnalyses.map((analysis) => (
+                      <option key={analysis.analysis_id} value={analysis.analysis_id}>
+                        {analysis.image_date || "без даты"} - {analysis.original_filename || analysis.analysis_id}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              {isSatelliteListLoading && <p className="inline-status">Загрузка списка анализов...</p>}
+              {isAllSatelliteLoading && <p className="inline-status">Загрузка всех сохранённых снимков...</p>}
+              {!isSatelliteListLoading && satelliteAnalyses.length === 0 && (
+                <p className="inline-status warning">Сохранённых спутниковых анализов пока нет.</p>
+              )}
+              {satelliteError && <p className="error-message">{satelliteError}</p>}
+            </section>
+            <section className="panel">
+              <h2>Фильтр уровней</h2>
+              <div className="class-filter-list">
+                {satelliteClassItems.map((item) => (
+                  <label className="class-filter-item" key={item.classValue}>
+                    <input
+                      type="checkbox"
+                      checked={enabledSatelliteClasses.includes(item.classValue)}
+                      onChange={() => toggleSatelliteClass(item.classValue)}
+                    />
+                    <span className="legend-swatch" style={{ backgroundColor: item.color }} />
+                    <span>{item.className}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+            <section className="panel">
+              <h2>Район отображения</h2>
               <p className="inline-status">
-                Демонстрационный слой. Нейросетевая модель будет подключена после дообучения.
+                Район определяется по географическому положению загруженного GeoTIFF. Один снимок
+                может пересекать несколько муниципальных районов.
               </p>
             </section>
-            <HazardStats
-              displayedDistrictCount={filteredDistrictData?.features.length ?? 0}
-              selectedDistrict={selectedSatelliteDistrictName}
+            <SatelliteSummaryPanel
+              summary={satelliteSummary}
+              title={
+                satelliteViewMode === "all"
+                  ? "Сводка по всем сохранённым спутниковым анализам"
+                  : "Summary спутникового анализа"
+              }
             />
+            {satelliteData?.features.length === 0 && (
+              <p className="inline-status warning">Нет патчей для выбранных уровней пожароопасности.</p>
+            )}
             <section className="panel">
-              <h2>Уровни пожарной опасности</h2>
+              <h2>Интерпретация результата</h2>
               <p className="inline-status">
-                Слой спутниковой классификации не подключён. После дообучения модели на карте
-                будут отображаться классы пожароопасности лесного покрова.
+                “Преобладающий класс” показывает основной фон отображаемых патчей,
+                “максимальный обнаруженный класс” подсвечивает наиболее опасный уровень.
               </p>
             </section>
           </>
@@ -332,13 +711,16 @@ export default function MapPage() {
       </aside>
       <section className="map-canvas" aria-label="Интерактивная карта">
         <MapView
-          districtData={filteredDistrictData}
+          districtData={districtGeoJson}
+          satelliteData={satelliteData}
+          satelliteImageBounds={satelliteImageBounds}
+          satelliteSummary={satelliteSummary}
           weatherData={selectedWeatherData}
           showDistricts={showDistricts}
           showWeather={showWeather}
           showSatellite={mode === "satellite"}
           weatherOpacity={0.56}
-          resizeKey={`${mode}-${filters.districtId}-${weatherDate}-${weatherDistrict}-${weatherHazardClass}`}
+          resizeKey={`${mode}-${satelliteViewMode}-${enabledSatelliteClasses.join("-")}-${satelliteSummary?.processed_patches ?? 0}-${weatherDate}-${weatherDistrict}-${weatherHazardClass}`}
         />
       </section>
     </div>

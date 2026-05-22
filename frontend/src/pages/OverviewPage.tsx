@@ -3,11 +3,12 @@ import InfoCard from "../components/InfoCard";
 import StatCard from "../components/StatCard";
 
 type OverviewPageProps = {
+  isAdmin: boolean;
   onNavigate: (page: Page) => void;
   onLogin: () => void;
 };
 
-export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps) {
+export default function OverviewPage({ isAdmin, onNavigate, onLogin }: OverviewPageProps) {
   return (
     <div className="page-stack">
       <section className="overview-hero">
@@ -16,17 +17,21 @@ export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps)
           <h1>Мониторинг пожароопасности лесного покрова</h1>
           <p>
             Система объединяет спутниковую оценку лесного покрова и кратковременный
-            метеопрогноз по индексу Нестерова. Спутниковая классификация будет
-            подключена после дообучения модели.
+            метеопрогноз по индексу Нестерова. Спутниковая классификация выполняется
+            по сетке GeoTIFF-патчей.
           </p>
         </div>
         <div className="hero-actions">
           <button className="primary-button" type="button" onClick={() => onNavigate("map")}>
             Открыть карту
           </button>
-          <button className="secondary-button light" type="button" onClick={onLogin}>
-            Войти как администратор
-          </button>
+          {!isAdmin ? (
+            <button className="secondary-button light" type="button" onClick={onLogin}>
+              Войти как администратор
+            </button>
+          ) : (
+            <span className="status-pill">Вы вошли как администратор</span>
+          )}
         </div>
       </section>
 
@@ -34,7 +39,7 @@ export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps)
         <StatCard label="Районов в системе" value="23" hint="границы Республики Бурятия" />
         <StatCard label="Классов пожароопасности" value="5" hint="от низкой до чрезвычайной" />
         <StatCard label="Метеомодуль" value="Open-Meteo" hint="индекс Нестерова" />
-        <StatCard label="Спутниковая модель" value="ожидает подключения" hint="после дообучения" />
+        <StatCard label="Спутниковая модель" value="ResNet18" hint="7 каналов Sentinel-2" />
       </section>
 
       <section className="content-grid">
@@ -48,7 +53,7 @@ export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps)
           <ul className="clean-list">
             <li>GeoTIFF;</li>
             <li>многоканальные снимки Sentinel-2;</li>
-            <li>каналы B2, B3, B4, B8, B11, B12;</li>
+            <li>каналы B2, B3, B4, B5, B8, B11, B12;</li>
             <li>векторные границы районов Республики Бурятия;</li>
             <li>метеоданные Open-Meteo для расчёта индекса Нестерова.</li>
           </ul>
@@ -58,7 +63,7 @@ export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps)
             <li>просмотр карты пожароопасности;</li>
             <li>фильтрация по районам;</li>
             <li>расчёт метеоопасности по индексу Нестерова;</li>
-            <li>подготовка к подключению нейросетевой классификации;</li>
+            <li>нейросетевая классификация GeoTIFF по патчам;</li>
             <li>просмотр результатов обработки.</li>
           </ul>
         </InfoCard>
@@ -88,7 +93,7 @@ export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps)
       <section className="content-grid two">
         <InfoCard title="Два режима оценки">
           <ul className="clean-list">
-            <li>Спутниковая оценка будет использовать дообучаемую модель.</li>
+            <li>Спутниковая оценка использует fine-tuned ResNet18.</li>
             <li>
               Метеопрогноз рассчитывается по индексу Нестерова на основе Open-Meteo.
             </li>
@@ -100,10 +105,10 @@ export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps)
             Индекс Нестерова помогает оценивать краткосрочный класс пожарной опасности.
           </p>
         </InfoCard>
-        <InfoCard title="Будущее подключение ML-модуля">
+        <InfoCard title="ML-модуль">
           <p>
-            Нейросетевая модель спутниковой классификации будет подключена после
-            дообучения. Сейчас спутниковый режим показывает реальные границы районов.
+            Нейросетевая модель классифицирует 7-канальный Sentinel-2 GeoTIFF по
+            неперекрывающимся патчам 512x512 и сохраняет результат в историю.
           </p>
         </InfoCard>
         <InfoCard title="Формат результата">
@@ -114,22 +119,6 @@ export default function OverviewPage({ onNavigate, onLogin }: OverviewPageProps)
         </InfoCard>
       </section>
 
-      <section className="content-grid two">
-        <InfoCard title="Текущий статус прототипа">
-          <ul className="clean-list">
-            <li>метеомодуль подключён;</li>
-            <li>реальные границы 23 районов подключены;</li>
-            <li>спутниковая модель будет подключена после дообучения;</li>
-            <li>авторизация пока mock.</li>
-          </ul>
-        </InfoCard>
-        <InfoCard title="Ограничения текущего прототипа">
-          <p>
-            В прототипе нет промышленной авторизации, базы данных и полноценной обработки
-            GeoTIFF нейросетевой моделью. Журнал обработок содержит демонстрационные записи.
-          </p>
-        </InfoCard>
-      </section>
     </div>
   );
 }

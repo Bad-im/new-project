@@ -5,15 +5,17 @@ import Header from "./Header";
 type AppLayoutProps = {
   activePage: Page;
   isAdmin: boolean;
+  loginError?: string;
   children: ReactNode;
   onNavigate: (page: Page) => void;
-  onLogin: () => void;
+  onLogin: (username: string, password: string) => Promise<void>;
   onLogout: () => void;
 };
 
 export default function AppLayout({
   activePage,
   isAdmin,
+  loginError = "",
   children,
   onNavigate,
   onLogin,
@@ -24,6 +26,7 @@ export default function AppLayout({
       <Header
         activePage={activePage}
         isAdmin={isAdmin}
+        loginError={loginError}
         onNavigate={onNavigate}
         onLogin={onLogin}
         onLogout={onLogout}

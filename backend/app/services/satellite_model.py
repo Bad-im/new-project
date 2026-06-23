@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 
-MODEL_PATH = Path(r"C:\labs\FireForest_outputs\finetune_resnet18_v2\best_model.pt")
+MODEL_PATH = Path(
+    os.environ.get(
+        "FIREFOREST_MODEL_PATH",
+        r"C:\labs\FireForest_outputs\finetune_resnet18_v1\best_model.pt",
+    )
+)
 EXPECTED_BAND_COUNT = 7
 PATCH_SIZE = 512
 MODEL_INPUT_SIZE = 224

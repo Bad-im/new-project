@@ -40,7 +40,8 @@ FireForest Monitor - это веб-приложение для оценки по
 - программа не скачивает спутниковые снимки сама;
 - пользователь должен заранее подготовить и загрузить GeoTIFF;
 - для полноценного спутникового анализа нужен файл обученной модели `best_model.pt`;
-- путь к модели сейчас задан в коде как `C:\labs\FireForest_outputs\finetune_resnet18_v2\best_model.pt`;
+- файл модели не хранится в GitHub-репозитории и передается отдельно;
+- по умолчанию backend ищет модель по пути `C:\labs\FireForest_outputs\finetune_resnet18_v1\best_model.pt`;
 - если файла модели нет, раздел карты и метеопрогноза может работать, но спутниковый анализ завершится ошибкой;
 - авторизация учебная: логин и пароль администратора заданы прямо в коде.
 
@@ -175,27 +176,44 @@ cd new-project
 ```powershell
 mkdir C:\labs
 mkdir C:\labs\FireForest_outputs
-mkdir C:\labs\FireForest_outputs\finetune_resnet18_v2
+mkdir C:\labs\FireForest_outputs\finetune_resnet18_v1
 mkdir C:\labs\FireForest_uploads
 mkdir C:\labs\FireForest_uploads\satellite_analyses
 ```
 
-Файл обученной модели должен лежать здесь:
+Файл обученной модели не входит в репозиторий GitHub, потому что это отдельный крупный артефакт обучения. Его нужно получить отдельно от автора проекта и положить здесь:
 
 ```text
-C:\labs\FireForest_outputs\finetune_resnet18_v2\best_model.pt
+C:\labs\FireForest_outputs\finetune_resnet18_v1\best_model.pt
 ```
 
-Если файл модели лежит в другом месте, нужно изменить путь `MODEL_PATH` в файле:
+Автору проекта нужно передать руководителю именно этот локальный файл:
 
 ```text
-backend\app\services\satellite_model.py
+C:\Users\vadim\Documents\New project\ml\outputs\finetune_resnet18_v1\best_model.pt
 ```
 
-Искомая строка:
+Размер файла: `44 846 795` байт, примерно `42.8 MiB`.
 
-```python
-MODEL_PATH = Path(r"C:\labs\FireForest_outputs\finetune_resnet18_v2\best_model.pt")
+Контрольная сумма SHA256:
+
+```text
+F2664E731DF029A16034E822AAFCB0A4D8D06C6DC0066E8C0292927A2BFC652E
+```
+
+Получателю нужно переименовывать файл не нужно: он уже называется `best_model.pt`. Нужно только положить его в папку `C:\labs\FireForest_outputs\finetune_resnet18_v1\`.
+
+Если файл модели нужно хранить в другом месте, перед запуском backend можно указать путь через переменную окружения:
+
+```powershell
+$env:FIREFOREST_MODEL_PATH="D:\models\best_model.pt"
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Если переменная `FIREFOREST_MODEL_PATH` не задана, используется путь по умолчанию:
+
+```text
+C:\labs\FireForest_outputs\finetune_resnet18_v1\best_model.pt
 ```
 
 ## 10. Как запустить backend
@@ -509,13 +527,14 @@ admin
 Проверьте, что файл модели лежит здесь:
 
 ```text
-C:\labs\FireForest_outputs\finetune_resnet18_v2\best_model.pt
+C:\labs\FireForest_outputs\finetune_resnet18_v1\best_model.pt
 ```
 
-Если путь другой, измените `MODEL_PATH` в:
+Если путь другой, задайте переменную окружения перед запуском backend:
 
-```text
-backend\app\services\satellite_model.py
+```powershell
+$env:FIREFOREST_MODEL_PATH="D:\models\best_model.pt"
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 ### Анализ завершился, но GeoJSON пустой

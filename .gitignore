@@ -14,7 +14,14 @@ vite-dev.*.log
 *.tsbuildinfo
 
 # Generated documents
+docwork/
 docwork/tmp/
+
+# Local model outputs and training artifacts
+ml/outputs/
+
+# Local Codex workspace config
+.codex/
 
 # Environment
 .env

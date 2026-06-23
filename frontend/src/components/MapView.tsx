@@ -57,7 +57,13 @@ export default function MapView({
       )}
       <MapResizeHandler resizeKey={resizeKey} />
       <SatelliteFitBounds summary={showSatellite ? satelliteSummary : null} />
-      {showDistricts && <DistrictBoundaryLayer data={districtData} />}
+      {showDistricts && (
+        <DistrictBoundaryLayer
+          data={districtData}
+          fill={!satelliteData?.features.length}
+          interactive={!satelliteData?.features.length}
+        />
+      )}
       {showSatellite && (
         <SatelliteLayer
           data={satelliteData}

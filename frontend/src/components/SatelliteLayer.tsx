@@ -109,6 +109,9 @@ export default function SatelliteLayer({ data, imageBoundsList = [], summary }: 
               });
               styledLayer.bringToFront?.();
             },
+            click: () => {
+              styledLayer.bringToFront?.();
+            },
             mouseout: () => {
               styledLayer.setStyle?.({
                 color: "#17212b",

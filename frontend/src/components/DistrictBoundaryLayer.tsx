@@ -14,6 +14,7 @@ type StyledLayer = Layer & {
 type DistrictBoundaryLayerProps = {
   data: DistrictFeatureCollection | null;
   fill?: boolean;
+  interactive?: boolean;
 };
 
 export function getDistrictName(properties?: DistrictBoundaryProperties): string {
@@ -29,6 +30,7 @@ export function getDistrictName(properties?: DistrictBoundaryProperties): string
 export default function DistrictBoundaryLayer({
   data,
   fill = true,
+  interactive = true,
 }: DistrictBoundaryLayerProps) {
   if (!data) {
     return null;
@@ -36,17 +38,24 @@ export default function DistrictBoundaryLayer({
 
   return (
     <GeoJSON
-      key={JSON.stringify(data)}
+      key={`${interactive ? "interactive" : "static"}-${fill ? "fill" : "outline"}-${JSON.stringify(data)}`}
       data={data}
+      interactive={interactive}
       style={() => ({
         color: "#111827",
         fillColor: "#2563eb",
-        fillOpacity: fill ? 0.08 : 0,
+        fillOpacity: fill && interactive ? 0.08 : 0,
         opacity: 0.95,
         weight: 1.8,
       })}
       onEachFeature={(feature: DistrictFeature, layer: Layer) => {
         const styledLayer = layer as StyledLayer;
+
+        if (!interactive) {
+          layer.unbindPopup();
+          layer.off();
+          return;
+        }
 
         layer.bindPopup(
           [
